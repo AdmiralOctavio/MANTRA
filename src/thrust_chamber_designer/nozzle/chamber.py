@@ -1,0 +1,110 @@
+import warnings
+
+import numpy as np
+from scipy.integrate import trapezoid
+
+
+def _convergent_volume(R1, R2, Rt, alpha, R_inlet, L_straight, L_total):
+    """Volume (mm^3) of the convergent section, inlet plane (R_inlet) -> throat (Rt).
+
+    Integrates pi * y(x)^2 dx over the full convergent wall profile
+    (inlet arc R2 -> conical line -> throat arc R1), which is fully determined
+    by the contraction geometry and independent of the chamber length.
+    """
+    theta_inlet = np.linspace(0, alpha, 200)
+    x_in = -L_total + R2 * np.sin(theta_inlet)
+    y_in = R_inlet - R2 * (1 - np.cos(theta_inlet))
+
+    x_t1, y_t1 = x_in[-1], y_in[-1]
+    x_t2 = x_t1 + L_straight * np.cos(alpha)
+    y_t2 = y_t1 - L_straight * np.sin(alpha)
+
+    theta_throat = np.linspace(alpha, 0, 200)
+    x_th = -R1 * np.sin(theta_throat)
+    y_th = Rt + R1 * (1 - np.cos(theta_throat))
+
+    x = np.concatenate([x_in, [x_t2], x_th])
+    y = np.concatenate([y_in, [y_t2], y_th])
+    return trapezoid(np.pi * y ** 2, x)
+
+
+def _length_from_lstar(R1, R2, Rt, alpha, R_inlet, L_straight, L_total, Lstar_m):
+    """Total chamber length (mm) needed to hit the propellant's target L*.
+
+    L* defines a chamber *volume* (V_c = L* * A_throat). The convergent volume
+    is fixed by geometry, so the remaining volume sets the cylindrical barrel
+    length. Total length = convergent axial length + barrel length.
+    """
+    Lstar_mm = Lstar_m * 1000.0  # m -> mm
+
+    A_throat = np.pi * Rt ** 2
+    V_target = Lstar_mm * A_throat
+    V_conv = _convergent_volume(R1, R2, Rt, alpha, R_inlet, L_straight, L_total)
+
+    L_barrel = (V_target - V_conv) / (np.pi * R_inlet ** 2)
+    if L_barrel < 0:
+        warnings.warn(
+            f"L* ({Lstar_mm/1000:.3f} m) is too small for this contraction "
+            f"geometry — the convergent section alone exceeds the target volume. "
+            f"Clamping barrel length to 0. Reduce the contraction ratio or pick a "
+            f"longer L* option."
+        )
+        L_barrel = 0.0
+    return L_total + L_barrel
+
+
+def CombustionChamber(wall_x, wall_y, R1, R2, L_throat, chamber):
+    # chamber: core.design.ChamberShape (slope, contraction ratio and L* or length). Returns the wall of the whole thrust chamber and
+    # the chamber length from the injector to the throat [mm]
+    alpha = np.deg2rad(chamber.slope)
+    Rt = L_throat
+    Contraction_Ratio = chamber.contraction_ratio
+    R_inlet = Rt * np.sqrt(Contraction_Ratio)
+
+    dy_straight = (R_inlet - Rt) - (R1 + R2) * (1 - np.cos(alpha))
+    L_straight = dy_straight / np.sin(alpha)
+
+    L_total = (R1 + R2) * np.sin(alpha) + L_straight * np.cos(alpha)
+
+    if chamber.lstar_sizing:
+        Length = _length_from_lstar(R1, R2, Rt, alpha, R_inlet, L_straight, L_total, chamber.lstar)
+    else:
+        Length = chamber.length
+
+    # Extra sampling so CAD splines don't misbehave on long straight/empty spans.
+    N_barrel = 8   # nodes along the cylindrical chamber barrel (constant radius)
+    N_bridge = 25   # nodes bridging the throat arc end -> first characteristic point
+
+    theta_inlet = np.linspace(0, alpha, 50)
+    x_arc_inlet = -L_total + R2 * np.sin(theta_inlet)
+    y_arc_inlet = R_inlet - R2 * (1 - np.cos(theta_inlet))
+
+    # Cylindrical barrel: straight, constant-radius run from the chamber head
+    # (-Length) to the start of the inlet arc (-L_total). endpoint=False avoids
+    # duplicating the inlet arc's first node.
+    x_barrel = np.linspace(-Length, -L_total, N_barrel, endpoint=False)
+    y_barrel = np.full_like(x_barrel, R_inlet)
+
+    x_t1, y_t1 = x_arc_inlet[-1], y_arc_inlet[-1]
+    x_t2 = x_t1 + L_straight * np.cos(alpha)
+    y_t2 = y_t1 - L_straight * np.sin(alpha)
+    x_line = np.array([x_t1, x_t2])
+    y_line = np.array([y_t1, y_t2])
+
+    theta_throat = np.linspace(alpha, 0, 50)
+    x_arc_throat = -R1 * np.sin(theta_throat)
+    y_arc_throat = Rt + R1 * (1 - np.cos(theta_throat))
+
+    # Bridge the gap between the throat arc end (min radius) and the first
+    # characteristic point with interior nodes so the spline stays tame there.
+    x_bridge = np.linspace(x_arc_throat[-1], wall_x[0], N_bridge + 2)[1:-1]
+    y_bridge = np.linspace(y_arc_throat[-1], wall_y[0], N_bridge + 2)[1:-1]
+
+    wall_x = np.concatenate(
+        [x_barrel, x_arc_inlet, x_line, x_arc_throat, x_bridge, wall_x]
+    )
+    wall_y = np.concatenate(
+        [y_barrel, y_arc_inlet, y_line, y_arc_throat, y_bridge, wall_y]
+    )
+
+    return wall_x, wall_y, Length

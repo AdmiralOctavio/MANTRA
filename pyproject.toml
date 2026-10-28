@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "thrust-chamber-designer"
+version = "0.2.0"
+description = "Liquid rocket thrust chamber design: Method of Characteristics nozzle contour and regenerative cooling thermal model"
+readme = "README.md"
+license = {text = "GPL-3.0-or-later"}
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "scipy",
+    "matplotlib",
+    "cea",
+    "CoolProp",
+    "fipy",
+    "gmsh",
+    "plotly",
+    "ezdxf",
+    "numpy-stl",
+]
+
+[project.optional-dependencies]
+gui = ["PySide6"]
+dev = ["pytest"]
+
+[project.scripts]
+tcd = "thrust_chamber_designer.cli:main"
+
+[project.gui-scripts]
+thrust-chamber-designer = "thrust_chamber_designer.gui.app:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"thrust_chamber_designer.gui" = ["icons/*.svg"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["slow: runs a thermal simulation (about half a minute)"]

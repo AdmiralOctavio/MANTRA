@@ -1,0 +1,92 @@
+{
+  "format": "thrust-chamber-designer",
+  "version": 1,
+  "design": {
+    "name": "600 N N2O / ethanol (80%)",
+    "propellants": {
+      "oxidiser": "n2o",
+      "fuel": "ethanol",
+      "fuel_concentration": 80.0
+    },
+    "operating": {
+      "chamber_pressure": 3400000.0,
+      "ambient_pressure": 101325.0,
+      "of_ratio": 4.4,
+      "thrust": 600.0,
+      "eta_c_star": 0.875,
+      "eta_nozzle": 0.985
+    },
+    "chamber": {
+      "contraction_ratio": 16.0,
+      "slope": 45.0,
+      "R1": 10.0,
+      "R2": 50.0,
+      "lstar_sizing": true,
+      "lstar": 1.0,
+      "length": 83.02
+    },
+    "nozzle": {
+      "refinement": 100,
+      "shorten": 0.75
+    },
+    "film": {
+      "injector_fraction": 0.35,
+      "injection_velocity": 10.0,
+      "injector_diameter": 0.0004,
+      "ports": []
+    },
+    "coolant": {
+      "fluids": [
+        "Ethanol",
+        "Water"
+      ],
+      "mass_fractions": [
+        0.8,
+        0.2
+      ],
+      "fuel_fraction": 1.0,
+      "inlet_temperature": 288.0,
+      "inlet_pressure": 4500000.0,
+      "start": "nozzle"
+    },
+    "channels": {
+      "n": 15,
+      "height": {
+        "value": 0.001,
+        "points": []
+      },
+      "fill_factor": {
+        "value": 0.35,
+        "points": []
+      },
+      "inner_wall": {
+        "value": 0.0009,
+        "points": []
+      },
+      "outer_wall": 0.0012,
+      "helical": false,
+      "helix_angle": {
+        "value": 30.0,
+        "points": []
+      },
+      "min_channel_size": 0.001
+    },
+    "thermal": {
+      "material": "GRCop-42",
+      "hot_gas_method": "cinjarev",
+      "cooling_method": "gnielinski-rough",
+      "boiling": true,
+      "chf_method": "hall-mudawar",
+      "post_chf": "meyer",
+      "ambient_temperature": 288.15,
+      "step_size": 0.0025,
+      "cell_size_factor": 0.15,
+      "adaptive_up": 1.4,
+      "tolerance": 0.05,
+      "max_iter": 300,
+      "run_time": null,
+      "save_section_figures": false,
+      "anchor_throat": true
+    }
+  }
+}
