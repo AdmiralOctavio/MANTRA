@@ -2,7 +2,10 @@ name: CI
 
 on:
   push:
+    branches: ["**"]
   pull_request:
+  release:
+    types: [published]
   workflow_dispatch:
 
 jobs:
@@ -45,3 +48,21 @@ jobs:
         with:
           name: ThrustChamberDesigner-windows
           path: dist/ThrustChamberDesigner
+
+  # When a release is published on the Releases page, the tested Windows app is attached to it as a zip
+  release:
+    if: github.event_name == 'release'
+    needs: [tests, windows-app]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ThrustChamberDesigner-windows
+          path: ThrustChamberDesigner
+      - name: Zip
+        run: zip -r -q ThrustChamberDesigner-windows.zip ThrustChamberDesigner
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: ThrustChamberDesigner-windows.zip
