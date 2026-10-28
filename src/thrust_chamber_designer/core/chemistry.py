@@ -134,7 +134,7 @@ def stoichiometric_mixture_ratio(fuel, oxidiser):
 	return cea.Mixture(names).chem_eq_ratio_to_of_ratio(ox_w, fuel_w, 1.0)
 
 
-def mixture_ratio_sweep(fuel, oxidiser, chamber_pressure, ambient_pressure, n=41):
+def mixture_ratio_sweep(fuel, oxidiser, chamber_pressure, ambient_pressure, n=500):
 	"""Ideal Isp (s) for expansion to the ambient pressure across an O/F sweep. The sweep spans 0.3-1.4x the stoichiometric O/F,
 	which brackets the Isp peak for every oxidiser / fuel pair. Returns (of_values, isp, of_stoich)."""
 	of_stoich = stoichiometric_mixture_ratio(fuel, oxidiser)

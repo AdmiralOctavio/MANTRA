@@ -36,7 +36,7 @@ thrust-chamber-designer = "thrust_chamber_designer.gui.app:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-"thrust_chamber_designer.gui" = ["icons/*.svg"]
+"thrust_chamber_designer.gui" = ["icons/*.svg", "icons/*.ico"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

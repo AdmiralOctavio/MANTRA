@@ -119,10 +119,10 @@ class EngineTab(QWidget):
             self.chart.draw()
             return
         i_peak = int(np.nanargmax(isp))
-        score = np.clip(1 - (isp[i_peak] - isp) / (0.10 * isp[i_peak]), 0, 1)
+        score = np.clip(1 - (isp[i_peak] - isp) / (0.2 * isp[i_peak]), 0, 1)
         base = np.nanmin(isp) - 0.05 * (isp[i_peak] - np.nanmin(isp))
         ink = "#5a5a5a"
-        ax.bar(of[ok], isp[ok] - base, bottom=base, width=of[1] - of[0], color=cm.RdYlGn(score[ok]), linewidth=0)
+        ax.bar(of[ok], isp[ok] - base, bottom=base, width=of[1] - of[0], color=cm.YlGnBu_r(score[ok]), linewidth=0, alpha=0.7)
         ax.plot(of, isp, color=ink, linewidth=0.8)
         ax.plot(of[i_peak], isp[i_peak], "v", color="#1a9850", markersize=6, markeredgecolor=ink, markeredgewidth=0.4)
         in_range = of[0] <= of_val <= of[-1]

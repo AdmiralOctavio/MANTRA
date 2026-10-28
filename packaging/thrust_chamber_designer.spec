@@ -33,6 +33,8 @@ a = Analysis(
     noarchive=False,
 )
 pyz = PYZ(a.pure)
+# icon of the exe in the Explorer and on the desktop, the same file the window uses
+icon = os.path.join(SPECPATH, os.pardir, "src", "thrust_chamber_designer", "gui", "icons", "app.ico")
 exe = EXE(
     pyz,
     a.scripts,
@@ -40,5 +42,6 @@ exe = EXE(
     exclude_binaries=True,
     name="ThrustChamberDesigner",
     console=False,
+    icon=icon if os.path.exists(icon) else None,
 )
 coll = COLLECT(exe, a.binaries, a.datas, name="ThrustChamberDesigner")

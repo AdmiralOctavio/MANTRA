@@ -1,4 +1,5 @@
 import multiprocessing
+import os
 import sys
 
 
@@ -47,6 +48,8 @@ def self_test(folder):
 
 
 def main(argv=None):
+    from PySide6.QtGui import QIcon
+    from PySide6.QtWidgets import QApplication
     # needed for the thermal simulation process in a packaged (frozen) app
     multiprocessing.freeze_support()
     argv = sys.argv if argv is None else argv
@@ -60,9 +63,17 @@ def main(argv=None):
     from . import themes
     from .main_window import MainWindow
 
+    if sys.platform == "win32":
+        # own taskbar entry, so the taskbar shows the icon of the app and not the one of python.exe when run from Python
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("ThrustChamberDesigner")
     app = QApplication(argv)
     app.setApplicationName("Thrust Chamber Designer")
     app.setOrganizationName("Thrust Chamber Designer")
+    # icons/app.ico is the icon of the window and the taskbar; the packaged exe takes the same file (packaging/*.spec)
+    icon = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons", "app.ico")
+    if os.path.exists(icon):
+        app.setWindowIcon(QIcon(icon))
     window = MainWindow(app)
     themes.apply(app, window.settings.value("theme", themes.DEFAULT), window)
     window.redraw_plots()

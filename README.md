@@ -1,4 +1,4 @@
-# Thrust Chamber Designer
+# MANTRA - Method of Characteristics, Aerothermo-Nozzle & Thermal Regenerative Analysis
 
 Design a regeneratively cooled liquid rocket thrust chamber in one tool: the nozzle contour with the Method of Characteristics, and the
 wall temperatures, heat fluxes, coolant state and wall stresses along that contour with a 2D thermal model of the cooling channels.
@@ -21,7 +21,7 @@ It combines two earlier tools:
 Python 3.10 or newer. All dependencies come as wheels from pip, so no FORTRAN compiler and no separate gmsh installation are needed.
 
 ```bash
-pip install "thrust-chamber-designer[gui] @ git+https://github.com/AdmiralOctavio/Thrust-Chamber-Designer"
+pip install "thrust-chamber-designer[gui] @ git+https://github.com/AdmiralOctavio/MANTRA"
 ```
 
 or from a clone of this repository:
