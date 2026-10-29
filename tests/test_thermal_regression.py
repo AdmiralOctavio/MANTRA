@@ -15,8 +15,18 @@ def test_example_matches_pyrocket(tmp_path):
     config = example_config.build(save_path=str(tmp_path), step_size=0.008, cell_size=0.3 * 0.9e-3, save_fig=False, print_result=False)
     example_config.run(config)
 
+    golden = os.path.join(GOLDEN, 'thermal_coarse_sim_data.csv')
     new = np.genfromtxt(tmp_path / 'sim_data.csv', delimiter=',', skip_header=1)
-    old = np.genfromtxt(os.path.join(GOLDEN, 'thermal_coarse_sim_data.csv'), delimiter=',', skip_header=1)
+    old = np.genfromtxt(golden, delimiter=',', skip_header=1)
     assert new.shape == old.shape
+    # The results are not identical on every platform: the 2D sections are meshed by gmsh, whose mesh can differ slightly with the
+    # floating point of the platform, and the sections are solved to a tolerance of 0.05 K. On Linux runners this moves the wall
+    # temperatures by a few hundredths of a kelvin and other results by up to about 0.5 %. The limits are well above that and well
+    # below a change of the model
+    with open(golden) as f:
+        header = [h.strip() for h in f.readline().split(',')]
     numeric = [c for c in range(old.shape[1]) if c != 30]          # column 30 is the Bree regime as text
-    np.testing.assert_allclose(new[:, numeric], old[:, numeric], rtol=1e-6, atol=1e-6, equal_nan=True)
+    temperature = [c for c in numeric if header[c].endswith('[K]') and '/' not in header[c]]
+    other = [c for c in numeric if c not in temperature]
+    np.testing.assert_allclose(new[:, temperature], old[:, temperature], rtol=0, atol=0.5, equal_nan=True)
+    np.testing.assert_allclose(new[:, other], old[:, other], rtol=2e-2, atol=1e-6, equal_nan=True)
