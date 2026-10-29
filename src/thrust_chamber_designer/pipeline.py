@@ -170,26 +170,53 @@ def write_nozzle_outputs(nd, folder, dxf=True, stl=False):
         export.create_stl(s.wall_x, s.wall_y, s.M_exit_design, folder)
 
 
+def cooling_geometry(nd, design=None, full_length=False):
+    """Chamber and cooling channel geometry of the thermal model on the contour of the nozzle. The channels and the step along the
+    chamber are taken from design, by default the design of the nozzle. The sections of the thermal model stop short of the ends of
+    the contour by up to a step; full_length adds the ends of the contour, for the CAD model."""
+    d = design or nd.design
+    th, chn = d.thermal, d.channels
+    x, y = nd.solution.wall_x / 1000, nd.solution.wall_y / 1000
+    chamber = ChamberGeometry.from_contour(x, y, th.step_size, expansion_ratio=nd.solution.expansion_ratio, anchor_throat=th.anchor_throat,
+                                           throat_step=th.throat_step, throat_zone=th.throat_zone / 1000)
+    geometry = chamber.geometry
+    if full_length:
+        first, last = np.argmin(x), np.argmax(x)
+        head = [[x[first], y[first]]] if geometry[0,0] > x[first] + 1e-9 else []
+        tail = [[x[last], y[last]]] if geometry[-1,0] < x[last] - 1e-9 else []
+        geometry = np.vstack(head + [geometry] + tail)
+    cooling_geom = CoolingGeometry(geometry, chn.height.as_input(), chn.fill_factor.as_input(), chn.inner_wall.as_input(),
+                                   float(chn.outer_wall), int(chn.n), chn.helix_angle.as_input() if chn.helical else 0.0)
+    cooling_geom.channel_geometry()
+    return chamber, cooling_geom
+
+
+def write_step(nd, folder, design=None, separate=True):
+    """Cooling_Jacket.step in folder: the chamber wall and the coolant in the channels as solids for CAD, the wall as inner wall,
+    outer wall and ribs if separate, otherwise as one jacket (see thermal.cad_export). Returns its path and the notes on the geometry."""
+    from .thermal.cad_export import create_step
+    d = design or nd.design
+    os.makedirs(folder, exist_ok=True)
+    _, cooling_geom = cooling_geometry(nd, d, full_length=True)
+    path = os.path.join(folder, "Cooling_Jacket.step")
+    notes = create_step(cooling_geom, path, fillet=d.channels.fillet_radius, separate=separate, name=d.name or "Cooling jacket")
+    return path, notes
+
+
 def build_thermal(nd, save_path):
     """Sets up the thermal model on the contour of the nozzle, like the setup part of PyRocket's config.py. Returns the objects
     under the names config.py used."""
     d = nd.design
-    th, chn, cool, op = d.thermal, d.channels, d.coolant, d.operating
+    th, cool, op = d.thermal, d.coolant, d.operating
     budget = nd.budget
     os.makedirs(save_path, exist_ok=True)
 
     material = MATERIALS[th.material]
     fuel, ox = propellant_blends(d)
 
-    # generate chamber geometry
-    chamber = ChamberGeometry.from_contour(nd.solution.wall_x / 1000, nd.solution.wall_y / 1000, th.step_size,
-                                           expansion_ratio=nd.solution.expansion_ratio, anchor_throat=th.anchor_throat)
+    # generate chamber and cooling channel geometry
+    chamber, cooling_geom = cooling_geometry(nd)
     geometry = chamber.geometry
-
-    # generate cooling channel geometry
-    cooling_geom = CoolingGeometry(geometry, chn.height.as_input(), chn.fill_factor.as_input(), chn.inner_wall.as_input(),
-                                   float(chn.outer_wall), int(chn.n), chn.helix_angle.as_input() if chn.helical else 0.0)
-    cooling_geom.channel_geometry()
 
     # generate settings class for 2D thermal sim
     cell_size = th.cell_size_factor * float(np.min(cooling_geom.t_w_i))

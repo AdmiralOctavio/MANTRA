@@ -240,6 +240,7 @@ class MainWindow(QMainWindow):
             self.nozzle = nd
             self.chamber_tab.show_solution(nd)
             self.cooling_tab.draw_preview()
+            self.thermal_tab.refresh()
             self.statusBar().showMessage("Nozzle solved: throat %.2f mm, mass flow %.4f kg/s" % (2 * nd.solution.throat_radius, nd.solution.mdot), 8000)
             if callable(then):
                 then()

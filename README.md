@@ -52,9 +52,18 @@ The tabs follow the order of the work:
    performance and the mass flows. *Export contour* writes `params.csv`, `Contour.csv`, `Contour.dxf` and an STL.
 3. **Cooling**: coolant, film cooling, cooling channels and wall material. Channel height, fill factor, inner wall thickness and
    helix angle can be constant or given as points along the chamber. The preview shows the channels at the throat and the channel
-   sizes along the contour against the smallest printable channel.
-4. **Thermal**: models and solver settings. *Run thermal simulation* (F6) runs in a separate process: the window stays usable, the
-   wall and coolant temperatures appear as the sections are solved, and *Cancel* stops it at any time.
+   sizes along the contour against the smallest printable channel. *Export 3D model (STEP)* writes `Cooling_Jacket.step` for CAD
+   (Fusion 360, CATIA / 3DEXPERIENCE, SolidWorks): an assembly of named, coloured parts, either inner wall, outer wall, ribs and
+   coolant channels, or the jacket as one solid and the coolant channels. Ribs and channels are one part each, with a body per rib
+   or channel; the channel bodies are the coolant volume, for cutting, CFD or a look at the channels. The channel corners are
+   rounded by the corner fillet, which is not part of the thermal model. The channels are open at both ends for manifolds to be
+   added in CAD. The separate parts touch to within 1e-5 mm but are not built from shared faces, so a boolean union of them can
+   fail: export the jacket as one solid when you need it whole.
+4. **Thermal**: models and solver settings. *Step at the throat* puts the sections closer together within the *fine zone* around
+   the throat, where the heat flux peaks, and lets the step grow smoothly (by 1.2 times per section) to the step along the contour
+   away from it: the throat is resolved finely without solving the whole chamber at that step. *Run thermal simulation* (F6) runs
+   in a separate process: the window stays usable, the wall and coolant temperatures appear as the sections are solved, and
+   *Cancel* stops it at any time.
 5. **Results**: summary and warnings, the plots of PyRocket (temperatures, heat flux, critical heat flux, heat transfer
    coefficients, coolant pressure, Reynolds number, wall temperature differences, stresses, Bree diagram), the temperature field of
    every section, and the 3D view of the joined sections.
@@ -72,6 +81,8 @@ the theme as well.
 ```bash
 tcd new my_engine.json                    # design file with the default inputs
 tcd nozzle my_engine.json -o results      # nozzle only
+tcd nozzle my_engine.json --step          # also Cooling_Jacket.step: inner wall, outer wall, ribs and channels for CAD
+tcd nozzle my_engine.json --step jacket   # the same with the jacket as one solid
 tcd run my_engine.json -o results         # nozzle and thermal simulation, all files and plots in results/
 ```
 

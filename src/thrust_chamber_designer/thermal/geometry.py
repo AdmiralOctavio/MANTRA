@@ -17,6 +17,26 @@ from .output import red_bold
 from .stress import x_ranges
 
 
+GROWTH = 1.2                                                        # largest ratio of neighbouring steps of a graded contour
+
+
+def graded_stations(x_min, x_max, x_t, fine, coarse, zone, growth=GROWTH):
+    # x of the sections [m] from x_min up to (not including) x_max, like the uniform grid: one at the throat x_t, the step fine within
+    # zone of it, growing by the factor growth per section beyond, up to coarse
+    sides = []
+    for direction, limit in ((-1, x_min), (1, x_max)):
+        pos, h, side = x_t, fine, []
+        while True:
+            if abs(pos - x_t) >= zone - 1e-12:
+                h = min(h * growth, coarse)
+            pos += direction * h
+            if (direction < 0 and pos < limit - 1e-12) or (direction > 0 and pos > limit - 1e-12):
+                break
+            side.append(pos)
+        sides.append(side)
+    return np.array(sides[0][::-1] + [x_t] + sides[1])
+
+
 class ChamberGeometry():
     """[Summary]
     Class to calculate the combustion chamber geometry based on a Rao nozzle. 
@@ -38,12 +58,15 @@ class ChamberGeometry():
         self.dx = step_size                                         # step size for the discretisation [-]
 
     @classmethod
-    def from_contour(cls, x, y, step_size=0.001, expansion_ratio=None, anchor_throat=False):
+    def from_contour(cls, x, y, step_size=0.001, expansion_ratio=None, anchor_throat=False, throat_step=None, throat_zone=0.0):
         # chamber geometry from a contour given as arrays of x and radius [m], e.g. the nozzle of the Method of Characteristics solver,
-        # instead of the Rao parameters or the Contour.csv file. The expansion ratio is taken from the contour unless it is given
+        # instead of the Rao parameters or the Contour.csv file. The expansion ratio is taken from the contour unless it is given.
+        # throat_step: smaller step [m] within throat_zone [m] of the throat, growing to step_size away from it (see contour())
         chamber = cls.__new__(cls)
         chamber.dx = step_size                                      # step size for the discretisation [-]
         chamber.anchor_throat = anchor_throat                       # one section exactly at the throat, see contour()
+        chamber.throat_step = throat_step if throat_step and throat_step < step_size else None
+        chamber.throat_zone = throat_zone
         chamber.contour_input = (np.asarray(x, dtype=float), np.asarray(y, dtype=float))
         if expansion_ratio is None:
             expansion_ratio = (chamber.contour_input[1][np.argmax(chamber.contour_input[0])] / np.min(chamber.contour_input[1]))**2
@@ -146,7 +169,11 @@ class ChamberGeometry():
         y = y[order]
 
         # Resample to uniform spacing dx
-        if getattr(self, 'anchor_throat', False):
+        if getattr(self, 'throat_step', None):
+            # finer near the throat: throat_step within throat_zone of the throat, then growing by GROWTH per section up to dx. Always
+            # with a section at the throat
+            x_uniform = graded_stations(x.min(), x.max(), x[np.argmin(y)], self.throat_step, self.dx, self.throat_zone)
+        elif getattr(self, 'anchor_throat', False):
             # grid through the throat (smallest radius), so that one section lies exactly at the throat. Starting the grid at the
             # first point of the contour generally misses the throat by up to dx/2, which makes the throat area of the thermal model
             # larger than that of the contour

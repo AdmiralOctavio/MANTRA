@@ -110,6 +110,7 @@ class Channels:
     helical: bool = False
     helix_angle: Profile = field(default_factory=lambda: Profile(30.0))    # angle to the chamber axis [deg]
     min_channel_size: float = 1e-3                                     # smallest channel that can be depowdered [m]
+    fillet_radius: float = 0.2e-3                                      # corner radius of the channels in the STEP model [m], not in the thermal model
 
 
 @dataclass
@@ -122,6 +123,8 @@ class ThermalSettings:
     post_chf: str = "meyer"                # 'meyer' or 'fallback'
     ambient_temperature: float = 288.15    # [K]
     step_size: float = 2.5e-3              # step along the chamber contour [m]
+    throat_step: float = 0.0               # smaller step near the throat [m], growing to step_size away from it; 0: off
+    throat_zone: float = 10.0              # distance from the throat within which throat_step is used [mm]
     cell_size_factor: float = 0.15         # cell size of the 2D sections as a fraction of the smallest inner wall thickness
     adaptive_up: float = 1.4
     tolerance: float = 5e-2

@@ -1,13 +1,17 @@
+import copy
+
 import numpy as np
 from matplotlib.patches import Wedge
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import (QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPushButton, QScrollArea,
-                               QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QComboBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton,
+                               QScrollArea, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
+from .. import pipeline
 from ..core import propellants as props
 from ..core.design import FilmPort
 from ..thermal.materials import MATERIALS
 from .widgets import PlotCanvas
+from .worker import run_in_thread
 
 
 class CoolingTab(QWidget):
@@ -98,6 +102,20 @@ class CoolingTab(QWidget):
         form.addRow("Helix angle", self.helix)
         form.addRow("Smallest printable channel", b.number(cg, "min_channel_size", scale=1e-3, decimals=2, minimum=0, maximum=100,
                                                            step=0.1, suffix="mm"))
+        form.addRow("Corner fillet", b.number(cg, "fillet_radius", scale=1e-3, decimals=2, minimum=0, maximum=10, step=0.05, suffix="mm",
+                                              tooltip="Radius of the channel corners in the STEP model, made smaller where a channel is "
+                                                      "too small for it. Not part of the thermal model"))
+        self.step_button = QPushButton("Export 3D model (STEP)...")
+        self.step_button.setToolTip("Chamber wall and coolant channels as solids for CAD (Fusion 360, CATIA, SolidWorks...)")
+        self.step_button.clicked.connect(self.export_step)
+        self.step_bodies = QComboBox()
+        self.step_bodies.addItem("Inner wall, outer wall, ribs, channels", True)
+        self.step_bodies.addItem("Jacket as one solid, channels", False)
+        self.step_bodies.setToolTip("Parts of the STEP model. Ribs and channels are one part each, with a body per rib or channel")
+        row = QHBoxLayout()
+        row.addWidget(self.step_bodies, 1)
+        row.addWidget(self.step_button)
+        form.addRow("STEP model", row)
         left.addWidget(box)
 
         box = QGroupBox("Wall material")
@@ -179,6 +197,39 @@ class CoolingTab(QWidget):
                 del self.window.design.film.ports[r]
         self._show_ports()
         self.window.design_changed()
+
+    # ── STEP export ──────────────────────────────────────────────────────
+    def export_step(self):
+        from .main_window import _sizing_inputs
+        folder = QFileDialog.getExistingDirectory(self, "Folder for Cooling_Jacket.step")
+        if not folder:
+            return
+        w = self.window
+        if w.nozzle is None or _sizing_inputs(w.design) != _sizing_inputs(w.nozzle.design):
+            # the model is built on the contour of the current inputs
+            w.solve_nozzle(then=lambda: self._write_step(folder))
+        else:
+            self._write_step(folder)
+
+    def _write_step(self, folder):
+        w = self.window
+        self.step_button.setEnabled(False)
+        w.statusBar().showMessage("Writing the STEP model...")
+
+        def finished(result):
+            self.step_button.setEnabled(True)
+            path, notes = result
+            w.statusBar().showMessage("Written " + path, 8000)
+            if notes:
+                QMessageBox.information(self, "STEP model", "Written %s\n\n- %s" % (path, "\n- ".join(notes)))
+
+        def failed(text):
+            self.step_button.setEnabled(True)
+            w.statusBar().showMessage("STEP export failed", 8000)
+            QMessageBox.critical(self, "STEP export failed", text.strip().splitlines()[-1])
+
+        run_in_thread(pipeline.write_step, w.nozzle, folder, copy.deepcopy(w.design), self.step_bodies.currentData(),
+                      on_finished=finished, on_failed=failed)
 
     # ── updates ──────────────────────────────────────────────────────────
     def refresh(self):

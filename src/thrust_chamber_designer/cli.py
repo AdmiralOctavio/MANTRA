@@ -3,6 +3,8 @@ Command line runs of a design file, for scripting and parameter sweeps without t
 
     tcd new my_engine.json                 write a design file with the default inputs
     tcd nozzle my_engine.json -o out       nozzle only: params.csv, Contour.csv, Contour.dxf and plots
+    tcd nozzle my_engine.json --step       also Cooling_Jacket.step: inner wall, outer wall, ribs and channels for CAD
+    tcd nozzle my_engine.json --step jacket   the same with inner wall, outer wall and ribs as one solid
     tcd run my_engine.json -o out          nozzle and thermal simulation
 """
 
@@ -12,7 +14,7 @@ import sys
 import time
 
 
-def _nozzle(design, out, stl):
+def _nozzle(design, out, stl, step):
     import matplotlib
     matplotlib.use("Agg")
     from . import pipeline
@@ -20,6 +22,12 @@ def _nozzle(design, out, stl):
 
     nd = pipeline.design_nozzle(design)
     pipeline.write_nozzle_outputs(nd, out, dxf=True, stl=stl)
+    if step:
+        t0 = time.time()
+        path, notes = pipeline.write_step(nd, out, separate=step == "parts")
+        print("Wrote %s in %.0f s" % (path, time.time() - t0))
+        for note in notes:
+            print("NOTE:", note)
     plots.characteristics_plot(nd.solution).savefig(os.path.join(out, "nozzle_characteristics.png"), dpi=200)
     # Standard Terminal Output
     for category, name, value, unit in pipeline.nozzle_summary(nd):
@@ -40,6 +48,9 @@ def main(argv=None):
         p.add_argument("design", help="design file (.json)")
         p.add_argument("-o", "--output", default=None, help="output folder, default: <design name>_results next to the file")
         p.add_argument("--stl", action="store_true", help="also write an STL of the inner wall")
+        p.add_argument("--step", nargs="?", const="parts", choices=("parts", "jacket"),
+                       help="also write a STEP model of the wall and the coolant: inner wall, outer wall, ribs and channels as parts "
+                            "(default), or 'jacket' for the wall as one solid and the channels")
     args = parser.parse_args(argv)
 
     from .core.design import Design
@@ -52,7 +63,7 @@ def main(argv=None):
     design = Design.load(args.design)
     out = args.output or os.path.splitext(args.design)[0] + "_results"
     os.makedirs(out, exist_ok=True)
-    nd = _nozzle(design, out, args.stl)
+    nd = _nozzle(design, out, args.stl, args.step)
     if args.command == "nozzle":
         return 0
 

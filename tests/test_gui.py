@@ -61,3 +61,19 @@ def test_window_solves_the_nozzle(app, tmp_path):
     assert Design.load(path).chamber.lstar == pytest.approx(1.2)
     window.modified = False
     window.close()
+
+
+def test_cooling_tab_exports_step(app, tmp_path, monkeypatch):
+    from thrust_chamber_designer.gui import tab_cooling
+    from thrust_chamber_designer.gui.main_window import MainWindow
+
+    window = MainWindow(app)
+    window.design.channels.n = 8
+    window.design.thermal.step_size = 0.005
+    monkeypatch.setattr(tab_cooling.QFileDialog, "getExistingDirectory", lambda *a, **k: str(tmp_path))
+    # without a nozzle, the export solves it first
+    window.cooling_tab.export_step()
+    assert _wait(app, lambda: window.nozzle is not None and window.cooling_tab.step_button.isEnabled(), timeout=120)
+    assert (tmp_path / "Cooling_Jacket.step").stat().st_size > 0
+    window.modified = False
+    window.close()

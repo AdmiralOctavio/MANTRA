@@ -193,14 +193,8 @@ class ThermalRun(QObject):
 def results_geometry(design):
     """Contour and channel geometry of the thermal model of a design, to show results of an earlier run (same dict as 'done')."""
     from .. import pipeline
-    from ..thermal.geometry import ChamberGeometry, CoolingGeometry
 
     nd = pipeline.design_nozzle(design)
-    th, chn = design.thermal, design.channels
-    chamber = ChamberGeometry.from_contour(nd.solution.wall_x / 1000, nd.solution.wall_y / 1000, th.step_size,
-                                           expansion_ratio=nd.solution.expansion_ratio, anchor_throat=th.anchor_throat)
-    cg = CoolingGeometry(chamber.geometry, chn.height.as_input(), chn.fill_factor.as_input(), chn.inner_wall.as_input(),
-                         float(chn.outer_wall), int(chn.n), chn.helix_angle.as_input() if chn.helical else 0.0)
-    cg.channel_geometry()
+    chamber, cg = pipeline.cooling_geometry(nd)
     return nd, {"contour": chamber.geometry, "beta": cg.beta, "psi_c": cg.psi_c, "psi_w": cg.psi_w, "h_c": cg.h_c, "t_w_i": cg.t_w_i,
                 "t_w_o": cg.t_w_o, "twist": cg.twist, "n_channels": cg.n_channels}

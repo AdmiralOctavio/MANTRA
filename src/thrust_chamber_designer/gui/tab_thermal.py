@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (QCheckBox, QDoubleSpinBox, QFileDialog, QFormLayo
                                QPlainTextEdit, QProgressBar, QPushButton, QScrollArea, QSplitter, QVBoxLayout, QWidget)
 from PySide6.QtCore import Qt
 
+from ..thermal.geometry import GROWTH, ChamberGeometry
 from .widgets import PlotCanvas
 
 
@@ -50,6 +51,16 @@ class ThermalTab(QWidget):
         form = QFormLayout(box)
         form.addRow("Step along the contour", b.number(th, "step_size", scale=1e-3, decimals=2, minimum=0.1, maximum=100, step=0.5,
                                                        suffix="mm", tooltip="Distance between the 2D sections. Fewer sections are faster"))
+        self.throat_step = b.number(th, "throat_step", scale=1e-3, decimals=2, minimum=0, maximum=100, step=0.1, suffix="mm",
+                                    tooltip="Smaller step near the throat, where the heat flux peaks. It grows by %g times per section "
+                                            "away from the fine zone up to the step along the contour" % GROWTH)
+        self.throat_step.setSpecialValueText("Off")
+        form.addRow("Step at the throat", self.throat_step)
+        self.throat_zone = b.number(th, "throat_zone", decimals=1, minimum=0, maximum=1000, step=1, suffix="mm",
+                                    tooltip="Distance upstream and downstream of the throat within which the step at the throat is used")
+        form.addRow("Fine zone", self.throat_zone)
+        self.sections_note = QLabel("")
+        form.addRow("", self.sections_note)
         form.addRow("Cell size", b.number(th, "cell_size_factor", decimals=3, minimum=0.01, maximum=2, step=0.05,
                                           suffix="x inner wall", tooltip="Cell size of the 2D sections as a fraction of the thinnest inner wall"))
         form.addRow("Tolerance", b.number(th, "tolerance", decimals=3, minimum=1e-4, maximum=10, step=0.01, suffix="K"))
@@ -129,6 +140,23 @@ class ThermalTab(QWidget):
         self.run_time.setEnabled(d.thermal.run_time is not None)
         self.chf.setEnabled(d.thermal.boiling)
         self.post_chf.setEnabled(d.thermal.boiling)
+        th = d.thermal
+        graded = 0 < th.throat_step < th.step_size
+        self.throat_zone.setEnabled(graded)
+        nd = self.window.nozzle
+        if nd is None:
+            self.sections_note.setText("Solve the nozzle to see the number of sections")
+            return
+        # sections of the thermal model, against the same step everywhere
+        x, y = nd.solution.wall_x / 1000, nd.solution.wall_y / 1000
+        n = len(ChamberGeometry.from_contour(x, y, th.step_size, anchor_throat=th.anchor_throat, throat_step=th.throat_step,
+                                             throat_zone=th.throat_zone / 1000).x)
+        text = "%d sections" % n
+        if graded:
+            text += ", %d with %.2f mm everywhere" % (len(ChamberGeometry.from_contour(x, y, th.throat_step).x), th.throat_step * 1e3)
+        elif th.throat_step >= th.step_size:
+            text += " (the step at the throat is not smaller than the step along the contour)"
+        self.sections_note.setText(text)
 
     def browse(self):
         folder = QFileDialog.getExistingDirectory(self, "Results folder", self.folder.text() or os.path.expanduser("~"))

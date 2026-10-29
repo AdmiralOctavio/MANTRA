@@ -78,7 +78,10 @@ can be increased if necessary.
 The combustion chamber is defined using a series of parameters in config.py that describe the cylindrical chamber section, and the converging and diverging sections 
 respectively. The variable convention here alligns closely with [RPA](https://www.rocket-propulsion.com/index.htm), with the notable differnece, that R1 and R2 are 
 exchanged in this program. A plot of the chamber contour is saved in the target directory before each run. The variable 'step_size' in config.py determines the 
-number of sections by imposing a minimum resolution in axial direction.  
+number of sections by imposing a minimum resolution in axial direction. In the desktop app and design files, a smaller step at the
+throat (ThermalSettings.throat_step) can be used within a zone around the throat (throat_zone), growing by 1.2 times per section up
+to step_size away from it. The coolant heat balance, pressure drop, film cooling and helix twist use the actual distance between
+neighbouring sections, so the sections need not be evenly spaced.  
 
 
 ### Setting up cooling channel geometries
