@@ -11,7 +11,8 @@ It combines two earlier tools:
   [docs/nozzle_solver.md](docs/nozzle_solver.md).
 * [Rocket-Engine-Thermal-Simulator](https://github.com/AdmiralOctavio/Rocket-Engine-Thermal-Simulator), based on PyRocket (Jonathan
   Neeser): 2D finite volume sections of the chamber wall along the contour, hot gas and coolant correlations, nucleate boiling and
-  critical heat flux, film cooling, helical channels and a wall stress screening. Documentation of the models in
+  critical heat flux, film cooling, helical channels, a wall stress screening, a creep rupture screening and a thermal ratcheting / cyclic
+  life check (elastic core stress after O'Donnell-Porowski and ligament thinning after Porowski et al., NASA CR-168261). Documentation of the models in
   [docs/thermal_model.md](docs/thermal_model.md).
 
 ![Chamber and nozzle](docs/images/chamber.png)
@@ -50,7 +51,8 @@ The tabs follow the order of the work:
 2. **Chamber & Nozzle**: chamber shape (contraction ratio, slope, radii, L* or length) and nozzle settings. *Solve nozzle* (F5)
    sizes the throat and the nozzle for the thrust and perfect expansion, and shows the contour with the characteristics, the
    performance and the mass flows. *Export contour* writes `params.csv`, `Contour.csv`, `Contour.dxf` and an STL.
-3. **Cooling**: coolant, film cooling, cooling channels and wall material. Channel height, fill factor, inner wall thickness and
+3. **Cooling**: coolant, film cooling, cooling channels and wall material, with the firing time and number of firings for the creep
+   rupture screening and the cyclic life. Channel height, fill factor, inner wall thickness and
    helix angle can be constant or given as points along the chamber. The preview shows the channels at the throat and the channel
    sizes along the contour against the smallest printable channel. *Export 3D model (STEP)* writes `Cooling_Jacket.step` for CAD
    (Fusion 360, CATIA / 3DEXPERIENCE, SolidWorks): an assembly of named, coloured parts, either inner wall, outer wall, ribs and
@@ -65,8 +67,12 @@ The tabs follow the order of the work:
    in a separate process: the window stays usable, the wall and coolant temperatures appear as the sections are solved, and
    *Cancel* stops it at any time.
 5. **Results**: summary and warnings, the plots of PyRocket (temperatures, heat flux, critical heat flux, heat transfer
-   coefficients, coolant pressure, Reynolds number, wall temperature differences, stresses, Bree diagram), the temperature field of
+   coefficients, coolant pressure, Reynolds number, wall temperature differences, stresses, Bree diagram, creep, cyclic life), the temperature field of
    every section, and the 3D view of the joined sections.
+6. **Throttle**: thermal limits over the throttle range. *Run throttle analysis* (F7) solves every chamber pressure with every core O/F on
+   the contour of the nozzle, with and without credit for the film. The map fills up as the points are solved, and at the end the O/F
+   schedules read off it are solved on the mesh of the Thermal tab and listed with their limits and notes. *Cancel* stops it at any time,
+   and *Open results* shows an earlier run again. See *Throttling* in [docs/thermal_model.md](docs/thermal_model.md).
 
 Designs are saved as JSON files (File menu). *View* switches between a light, a dark and an Aero theme (Vista / 7, Frutiger Aero);
 the plots and the 3D view follow the theme. In the Aero theme on Windows 11 the title bar and window border take the sky blue of
@@ -84,7 +90,14 @@ tcd nozzle my_engine.json -o results      # nozzle only
 tcd nozzle my_engine.json --step          # also Cooling_Jacket.step: inner wall, outer wall, ribs and channels for CAD
 tcd nozzle my_engine.json --step jacket   # the same with the jacket as one solid
 tcd run my_engine.json -o results         # nozzle and thermal simulation, all files and plots in results/
+tcd throttle my_engine.json -o results    # map of throttle level against O/F, and the O/F schedules read off it
 ```
+
+`tcd throttle` solves every chamber pressure with every core O/F on the fixed contour, with and without credit for the film, and writes
+`throttle_map.csv`, `throttle_map_film.png`, `throttle_map_no_film.png` and, for the schedules on the mesh of the design,
+`throttle_schedule.csv`. It takes several minutes, `-j` sets the number of points solved at the same time and `--no-verify` stops after the
+map. The ranges, limits and an optional schedule of your own are in the `throttle` block of the design file, see
+[docs/thermal_model.md](docs/thermal_model.md).
 
 ### Python
 
@@ -136,7 +149,7 @@ decides failure here. Keep this in mind when judging the CHF results of your own
 ## Tests
 
 ```bash
-pytest            # about 35 s; pytest -m "not slow" skips the two thermal runs
+pytest            # about 3 minutes; pytest -m "not slow" skips the thermal runs
 ```
 
 The regression tests compare against results of the original code: the nozzle solver reproduces the contour, mass flow and thrust

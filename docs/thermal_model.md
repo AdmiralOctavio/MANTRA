@@ -264,11 +264,131 @@ This is a screening estimate and no replacement for a structural analysis. Secti
 start up and shut down transients, stress concentrations at the channel corners and creep are not included. The Bree diagram assumes an elastic - perfectly
 plastic material with a constant yield strength. Wall temperatures of sections above the critical heat flux are not a prediction, and neither are their stresses.
 
+### Creep Rupture Screening
+For materials with a Larson-Miller curve in materials.py, 'creep.py' screens every section for creep rupture under the primary stresses, at the
+highest temperature of the hot gas side wall and for the total firing time (firing time x number of firings, set with the wall material):
+
+* The stress rupture data are a Larson-Miller curve, LMP = T (C + log10 t_r) with T in K and the time to rupture t_r in hours, interpolated
+  linearly in log(stress). A factor on the rupture stress takes printed parts from data of wrought material.
+* Creep relaxes the peak of the elastic bending stress, so the rupture is governed by the reference stress of the limit load (R5 method):
+  sig_ref = sig_bend / 4 + sqrt(sig_bend^2 / 16 + sig_membrane^2) for the inner wall as a beam with fixed ends (hinges at both ends and in the
+  middle, interaction M / M_p + (N / N_p)^2 = 1). That is half the elastic bending stress for bending alone.
+* The life fraction (Robinson's rule) is the total firing time over the time to rupture, rupture at 1. Its scatter is large: a factor of 10 in life
+  is common for creep data, and more for printed material, so a life fraction above about 0.1 deserves attention.
+
+The data cover tens to hundreds of hours, while small engines fire for seconds to minutes. Outside the stresses of the data the curve is extended with
+the slope of its ends, and the sections are flagged in the csv file and shaded in 'creep.png'. Towards high stresses the rupture stress goes no further
+than the short time tensile strength where the library has it over temperature (IN718, GRCop-42), and no further than the highest stress of the data
+otherwise, so that a section above it ruptures at once. Where the rupture life is extrapolated to long times the result reads as "no creep concern",
+not as a life.
+
+| Material | Data | C | Printed parts |
+|---|---|---|---|
+| IN718 | wrought bar, annealed and aged, 593 to 760 C, 100 and 1000 h (Rolled Alloys alloy 718 bulletin) | 20 | 0.9 x stress, estimate |
+| GRCop-42 | extruded, 500, 650 and 800 C, 2.5 to 850 h (Gradl et al., AIAA-2019-4228, figure 11) | 15.5, fitted | 0.9 x stress, estimate |
+| CuCr1Zr | ITER grade sheet, 500 C only, 4.7 to 530 h (Wang et al., Mater. Sci. Eng. A 2020, ORNL) | 20, assumed | 0.9 x stress, estimate |
+| SS316L, SS14404 | L-PBF 316L, 550 to 650 C, 175 to 300 MPa (Wang et al., J. Nucl. Mater. 2021, ORNL) | 17 | data are of printed parts |
+
+No creep data were found that could be trusted for printed Ti-6Al-4V and AlSi10Mg, they are not screened. The CuCr1Zr curve is the least reliable:
+the data are of one temperature, and CuCrZr overages and softens above about 400 C, so its creep strength changes faster with temperature than a
+single Larson-Miller curve can show. Creep under the thermal (secondary) stresses is not part of the rupture screening: they relax by creep while
+the engine runs and reverse at shut down, which thins and bulges the inner wall over many firings (the "doghouse" failure of regeneratively
+cooled chambers). This is checked separately, see below.
+
+### Thermal Ratcheting and Cyclic Life
+The thermal stresses are set by a strain, not a load: the hot inner wall is held back by the colder closeout, yields in compression when firing,
+relaxes by creep, and yields in tension at shut down. On their own they do not rupture the wall within a firing, but the pressure biases every
+cycle, so the wall between the ribs (the ligament) bulges into the chamber and thins at the middle of the channel a little with every firing, until
+it necks or cracks. The life is a number of firings, not hours. For materials with creep rates and a fatigue curve in materials.py, 'ratchet.py'
+checks this in two independent ways for every section, with the firing time and the number of firings of the wall material:
+
+1. **Elastic core stress** (O'Donnell and Porowski, as test B-1 of ASME III Division 5, HBB-T-1332). The Bree model (membrane primary stress, linear
+   thermal stress) has an elastic core in the middle of the wall whose stress Z sets the creep ratcheting. With X = (membrane + bending / 1.25) /
+   S_y and Y = secondary stress range / S_y, S_y the mean of the yield strengths of the hot and the cold end of the cycle: Z = X in the elastic
+   regime (X + Y <= 1), Z = 1 + Y - 2 sqrt((1 - X) Y) in regime S1 ((1 - X) Y <= 1) and Z = X Y in regimes S2 and P; Z >= 1 is plastic
+   ratcheting (Porowski and O'Donnell, *Creep ratcheting bounds from extended elastic core concept*, ORNL, OSTI 6027412). The core stress is
+   Z x S_y of the cold end; its creep strain at 1.25 times that stress, with the minimum creep rate at the highest wall temperature over all
+   firings, is compared with the 1 % strain limit of the base metal. The result is the number of firings to 1 % ratchet strain.
+2. **Ligament life** (Porowski, O'Donnell, Badlani et al., NASA CR-165585 (1981) and NASA CR-168261 (1983), J. Spacecraft and Rockets 22 (1985)).
+   The ligament is a beam of thickness 2H over the channel width, held by the closeout through the ribs. The hoop plastic strain range is the
+   thermal mismatch of ligament and closeout less twice the yield strain, plus the stress relaxed by creep in the firing (all of it above 1000 psi
+   pressure difference, Norton relaxation below), plus a correction for the bending of the temperature gradient. Both halves of the cycle bend
+   the ligament the same way, with a curvature of strain / H from the normality of the yield surface m + n^2 = 1; with the shear of the
+   pressure and the creep deflection of a clamped beam this gives the deflection and the thinning per firing (linear thinning model). The life
+   is the first of tensile instability of the thinned ligament (thickness 2H exp(-q), q = 0.2 (S_u / S_y - 1)^0.6) and fatigue plus creep rupture
+   damage summed over the firings as the ligament thins (local strain range at the thinnest section, creep rupture under the bending stress at
+   the middle of the channel when it redistributes within a firing). The implementation reproduces the worked examples of both reports
+   (NARloy-Z at 3000 psi: 0.0145 plastic strain and 0.000146 in thinning per cycle, 49 cycles to instability; OFHC copper at 547 psi: 103 cycles).
+
+The ligament model takes the largest mismatch of ligament and closeout over the cycle. The thermal model only has the steady state, and at start up
+the inner wall heats within about a second while the closeout lags, so the peak mismatch can be several times the steady one (in the NASA test
+chambers it was the transient that mattered). The ligament life is therefore given twice: for the steady state, and as a start-up bound with the
+inner wall at its steady temperature and the closeout still at the temperature at shut down. The real start up lies between the two, closer to the
+bound the thicker and less heated the closeout is; a transient thermal analysis would be needed to place it. For a 1 kN N2O / ethanol chamber in
+GRCop-42 with a hot printed closeout the steady state gave a mismatch of 0.09 % (no yielding, life far beyond the fatigue data) and the bound 0.47 %
+(about 270 firings), which shows how much the answer depends on the start up.
+
+The two are complementary rather than two estimates of the same number. The core stress check bounds the creep ratcheting under a membrane primary
+stress and sees no ratcheting in the plastic cycling regime of Bree (Y > 2, X Y < 1). The ligament model has the pressure as a bending stress and a
+membrane thermal strain that cycles beyond yield, which ratchets at any pressure difference. Where the inner wall stays elastic they agree that the
+life is long; where it yields in every firing the ligament life governs. Both are simplified bounds for screening: hardening that slows the thinning
+(as in NARloy-Z) is not credited, the creep laws have no primary creep, and fatigue lives scatter by a factor of 2 to 3. Results are written to the csv
+file, plotted in 'life.png' and printed at the end of the run; sections where a creep law or fatigue curve is extrapolated are flagged.
+
+| Material | Creep rates | Fatigue (total strain range) |
+|---|---|---|
+| IN718 | wrought, heat treatment A, 650 to 760 C (Hayes, Superalloys 1991, table III) | wrought, 360, 550 and 650 C, Manson-Coffin-Basquin fits (Xie, Superalloys 1991, table IV) |
+| GRCop-42 | extruded, 500, 650 and 800 C (Gradl et al., AIAA-2019-4228, figure 10) | wrought, RT to 600 C pooled (same paper, figure 2) |
+| CuCr1Zr | 216 and 300 C laws (Li, Thomas, Stubbins, Metall. Mater. Trans. A 2000, table II), 500 C (Wang et al. 2020, ORNL) | SAA, RT to 500 C, Coffin-Manson fit (Zhang, Gaganidze, Gorley, CuCrZr material property handbook) |
+| SS316L, SS14404 | L-PBF, 550 to 650 C (Wang et al. 2021, ORNL, figure 6) | wrought austenitic steels in air, RT to about 400 C (NUREG/CR-6909) |
+
+For CuCr1Zr and the 316L grades the library now also holds the yield and ultimate strength over temperature (CuCrZr: average fits of the handbook
+above; 316L: as built L-PBF along the build direction, Dryepondt et al., Addit. Manuf. 2021, ORNL), and for 316L the modulus and thermal expansion
+of EN 10088-1, so the wall stress analysis runs for them as well. The liner temperatures of small engines are often below the test temperatures of
+the creep data; the rates are then extrapolated in 1 / T and flagged. The CuCrZr lots differ in heat treatment, so its temperature dependence is
+the least certain, and the 500 C fatigue tests of CuCrZr lie a factor of 2 to 3 below its fit.
+
+### Throttling
+'throttle.py' analyses a finished design while throttling. The contour stays, and an operating point is a chamber pressure and a core O/F.
+The rest follows from these two, and the thermal model runs on each point unchanged:
+
+* The mass flow through the throat is that of the design times Pc / Pc_design times c*_design / c*, with the c* of CEA at the point and the c* efficiency of the design. A fuel rich point with a lower c* needs more flow for the same chamber pressure.
+* The split into oxidiser, fuel and film is the mass budget at the new core O/F with the film fractions of the design. The injection velocity of the films follows the fuel feed, as the orifices are fixed.
+* The throttle valve is taken to be upstream of the channels, so the jacket pressure falls with the chamber pressure: p_inlet = Pc + dp_design (feed / feed_design)^2, the fuel injector and the channels acting as one fixed area with the pressure drop of the design point (coolant inlet pressure less chamber pressure). A staged injector has less area at low flow, so this is the lowest pressure the jacket can see. 'jacket_inlet_pressure' is the place for the curve of a real injector.
+
+The O/F schedule is not an input, it is read off a map: every chamber pressure of 'pc_fractions' is solved with every O/F of 'of_ratios' (8 steps from the design
+O/F towards fuel rich by default). A point keeps the limits if no section fails (above 17 bar of coolant pressure the post-CHF branch can be used up to 1.55 times
+the CHF, below 17 bar every section above the CHF fails), the coolant itself does not reach saturation, and its subcooling stays above 'min_subcooling' (20 K, about
+the lowest of the ethanol CHF tests). 'allow_post_chf' set to False also rejects the post-CHF branch. The schedule takes the highest O/F which keeps the limits
+at each chamber pressure, and a point must also be rich enough for the next point down, because O/F is interpolated between them in operation. Otherwise the
+engine would reach the next point too lean, which matters most where the coolant falls below 17 bar and the post-CHF branch ends. The design point keeps the design O/F
+if it keeps the limits. A schedule of your own can be added with 'schedule' as (chamber pressure fraction, O/F) points, and is solved with the others.
+
+The map is solved twice, with the film as modelled and without credit for it: same flows and pressures, but the wall does not see the film. This bounds the result and
+is not an option to leave out. Going fuel rich extends the liquid film a long way, for the 600 N example it reaches the throat at O/F 2.8 and the end of the nozzle at about 2.2, while the
+model is not validated at and downstream of the throat. On the map of that engine the deepest points need O/F 2.8 with film credit and 2.0 without, so the
+film decides the schedule. The true limit lies between the two until hot fire data places the film. The map runs on a coarse mesh ('map_step_size',
+'map_cell_size_factor'), and the schedules are solved again on the mesh of the design.
+
+Each result in 'throttle_map.csv' and 'throttle_schedule.csv' has the thermal limits, the stress and life results, and an estimate of the thrust with attached flow, scaled to the thrust of
+the design. 'stiffness_fuel' and 'stiffness_ox' are the injector pressure drop over chamber pressure relative to the design point, for one fixed area and an incompressible
+liquid. They are rough for nitrous oxide, but show which side loses its stiffness first: going fuel rich helps the fuel side and takes it away from the oxidiser side. The terminal table
+notes the points where the film passes the throat, the throat coolant velocity is below the 3 m/s of the CHF tests, most sections are below Re = 2300 (where 'gnielinski-rough' holds the
+heat transfer of Re = 2300, which is optimistic), the coolant is below 17 bar, or the exit pressure is below 40 % of ambient pressure.
+
+Not included: the c* efficiency stays that of the design, although it will usually fall with low injector pressure drop and fuel rich mixtures; the film fractions stay those of the design,
+although staging an injector changes the split; the sections are steady state, so transients between throttle points and the start of the second stage are not covered; nozzle
+flow separation is only flagged, and coking, soot, ignition and combustion stability of fuel rich mixtures are outside this model.
+
 ### Using Material Library
 Four common rocket engine chamber matierals can be selected from MaterialLib.py, 'Ti-6Al-4V', 'IN718', 'CuCr1Zr' and 'SS 1.4404'. These can be selected in config.py.
 If a differnet material is desired, it can be added in MaterialLib.py, similar to the existing examples. Youngs modulus, poisson ratio, thermal expansion 
 coefficient (mean value from ambient temperature), yield and ultimate strength can be set as functions of temperature with 'temperature_dependent'. 
-The wall stress analysis needs all of them and is skipped for materials without a yield strength.
+The wall stress analysis needs all of them and is skipped for materials without a yield strength. The creep rupture screening needs a Larson-Miller
+curve, set as `material.creep = LarsonMiller(C, LMP, stress, factor)` (see creep.py), and only the pressures and the geometry otherwise.
+The ratcheting and cyclic life checks need the yield and ultimate strength, the Larson-Miller curve, minimum creep rates as
+`material.norton = NortonCreep({T: (stresses, rates)})` and a strain controlled fatigue curve as
+`material.fatigue = FatigueCurve({T: strain_range_of_cycles}, N_range)` (see ratchet.py).
 
 
 ### Creating New Propellant Blends

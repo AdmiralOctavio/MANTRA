@@ -6,6 +6,7 @@ Command line runs of a design file, for scripting and parameter sweeps without t
     tcd nozzle my_engine.json --step       also Cooling_Jacket.step: inner wall, outer wall, ribs and channels for CAD
     tcd nozzle my_engine.json --step jacket   the same with inner wall, outer wall and ribs as one solid
     tcd run my_engine.json -o out          nozzle and thermal simulation
+    tcd throttle my_engine.json -o out     nozzle, map of throttle level against O/F, and the O/F schedules read off it
 """
 
 import argparse
@@ -51,6 +52,11 @@ def main(argv=None):
         p.add_argument("--step", nargs="?", const="parts", choices=("parts", "jacket"),
                        help="also write a STEP model of the wall and the coolant: inner wall, outer wall, ribs and channels as parts "
                             "(default), or 'jacket' for the wall as one solid and the channels")
+    p_throttle = sub.add_parser("throttle", help="map the thermal limits over throttle level and O/F and pick O/F schedules")
+    p_throttle.add_argument("design", help="design file (.json)")
+    p_throttle.add_argument("-o", "--output", default=None, help="output folder, default: <design name>_results next to the file")
+    p_throttle.add_argument("-j", "--jobs", type=int, default=None, help="points solved at the same time, default: number of CPUs less 2")
+    p_throttle.add_argument("--no-verify", action="store_true", help="only the map, do not solve the schedules on the mesh of the design")
     args = parser.parse_args(argv)
 
     from .core.design import Design
@@ -63,12 +69,26 @@ def main(argv=None):
     design = Design.load(args.design)
     out = args.output or os.path.splitext(args.design)[0] + "_results"
     os.makedirs(out, exist_ok=True)
-    nd = _nozzle(design, out, args.stl, args.step)
+    throttling = args.command == "throttle"
+    nd = _nozzle(design, out, False if throttling else args.stl, None if throttling else args.step)
     if args.command == "nozzle":
+        return 0
+
+    if throttling:
+        from .thermal import throttle
+
+        def progress(stage, done, total, result):
+            print("%s %d / %d: %.0f %% Pc, O/F %.2f, %s" % (stage.capitalize(), done, total, result.pc_fraction * 100, result.of_ratio,
+                                                           "film" if result.film else "no film credit"), flush=True)
+
+        t0 = time.time()
+        throttle.run(nd, out, args.jobs, not args.no_verify, progress)
+        print("Throttle analysis took %.0f s, results in %s" % (time.time() - t0, out))
         return 0
 
     from . import pipeline
     from .thermal.plots import Plotting1D
+    from .thermal import creep, ratchet
     from .thermal.stress import summary
 
     t0 = time.time()
@@ -79,10 +99,12 @@ def main(argv=None):
     plot = Plotting1D(save_path=out, geometry=setup.geometry, cooling_geom=setup.cooling_geom, boiling=th.boiling,
                       post_chf=th.post_chf, save=True, show=False)
     for name in ("temperature_plot", "pressure_plot", "heat_transfer_coeff_plot", "heat_flux_plot", "reynolds_plot", "chf_plot",
-                 "wall_delta_plot", "stress_plot", "bree_plot"):
+                 "wall_delta_plot", "stress_plot", "bree_plot", "creep_plot", "life_plot"):
         getattr(plot, name)()
     plot.section_3d_plot(include_plotlyjs=True)
     summary(setup.output, setup.material, th.ambient_temperature)
+    creep.summary(setup.output, setup.material, th.firing_time, th.firings)
+    ratchet.summary(setup.output, setup.material, th.firing_time, th.firings)
     for note in pipeline.thermal_warnings(setup, sim):
         print("WARNING:", note)
     print("Thermal simulation took %.0f s, results in %s" % (time.time() - t0, out))

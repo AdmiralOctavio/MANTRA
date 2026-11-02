@@ -26,7 +26,7 @@ POST_CHF_LIMIT    = 1.55                    # heat flux of the second excursion,
 
 
 class HeatTransfer():
-    def __init__(self, cea, gas, geometry, material, coolant, cooling_geometry, m_dot, m_dot_coolant, T_amb, output, settings2D, model='standard-bartz', cool_model='gnielinski', eta_c_star=0.92, film=False, boiling=False, chf_model='meyer', post_chf='fallback'):
+    def __init__(self, cea, gas, geometry, material, coolant, cooling_geometry, m_dot, m_dot_coolant, T_amb, output, settings2D, model='standard-bartz', cool_model='gnielinski', eta_c_star=0.92, film=False, boiling=False, chf_model='meyer', post_chf='fallback', firing_time=10.0, firings=1):
         """[summary]
         Class to calculate heat tranfer coefficients and radiative heat transfer at arbitrary locations along the chamber contour.
 		These functions are passed to the 2D thermal simulation, after which the program advances to the next chamber section. Several options are 
@@ -67,7 +67,8 @@ class HeatTransfer():
         self.out = output								# output class
         self.settings2D = settings2D					# settings for 2D thermal sim
 
-        self.stress = WallStress(material, cooling_geometry, T_amb)    # wall stress analysis, wall is free of thermal stress at ambient temperature
+        # wall stress analysis, wall is free of thermal stress at ambient temperature. Creep rupture over firings of firing_time [s]
+        self.stress = WallStress(material, cooling_geometry, T_amb, firing_time, firings)
 
 
 

@@ -76,8 +76,10 @@ def style_figure(fig, theme):
             continue
         colorbar = hasattr(ax, "_colorbar")
         twin = not ax.patch.get_visible()          # twinx axes lie over another one, their background stays clear
+        plain = getattr(ax, "_tcd_plain", False)   # heatmaps: the cells are the plot, no gradient or grid over them
         if not colorbar and not twin:
             ax.set_facecolor(p["axes"])
+        if not colorbar and not twin and not plain:
             if "gradient" in p and not getattr(ax, "_tcd_background", False):
                 bg = ax.inset_axes([0, 0, 1, 1], zorder=-10)
                 bg.imshow(np.linspace(0, 1, 256)[:, None], aspect="auto", extent=(0, 1, 0, 1), origin="upper",

@@ -8,6 +8,9 @@
 
 import numpy as np
 
+from .creep import reference_stress
+from .ratchet import core_ratchet, ligament_life
+
 
 # regimes of the Bree diagram, in the order used in the summary and the plots
 REGIMES = {
@@ -41,12 +44,21 @@ class WallStress():
     Secondary stresses (temperature): the hot inner wall is held back by ribs and outer wall (mismatch) and the temperature difference
     through the inner wall bends it (gradient). Both are compressive at the hot gas side.
     Sections do not interact, loads from thrust, mounting, manifolds and start up or shut down transients are NOT included.
+    Creep rupture under the primary stresses is screened for materials with a Larson-Miller curve, over the total firing time at the
+    steady state wall temperature. For materials with creep rates and a fatigue curve as well, the thermal ratcheting of the inner wall
+    over the firings is checked in two independent ways (ratchet.py): creep of the elastic core after O'Donnell and Porowski, and the
+    bulging and thinning of the ligament between the ribs after Porowski et al.
     """
-    def __init__(self, material, cooling_geometry, T_ref):
+    def __init__(self, material, cooling_geometry, T_ref, firing_time=10.0, firings=1):
         self.material         = material                 # material object
         self.cooling_geometry = cooling_geometry         # cooling channel geometry object
         self.T_ref            = T_ref                    # temperature at which the wall is free of thermal stress [K]
         self.active           = material.sig_y is not None
+        self.creep            = getattr(material, 'creep', None)     # Larson-Miller curve, None: no creep rupture screening
+        self.t_total          = firing_time * firings / 3600         # total firing time [h]
+        self.firing_time      = firing_time                          # duration of one firing [s]
+        self.firings          = firings                              # number of firings
+        self.cyclic           = self.active and all(getattr(material, name, None) is not None for name in ('creep', 'norton', 'fatigue'))
 
 
     def thermal_strain(self, T):
@@ -96,7 +108,7 @@ class WallStress():
             'T_outer':  solver.T_outer,
         }
 
-        if not self.active:
+        if not self.active and self.creep is None:
             return res
 
         mat = self.material
@@ -110,6 +122,14 @@ class WallStress():
         sig_p_bend     = 0.5 * abs(p_coolant - p_gas) * (w / t_i)**2
         sig_p_membrane = (p_gas * r_c + geom.psi[idx] * geom.h_c[idx] * p_coolant) / (t_i + t_o)
         sig_primary    = sig_p_bend + sig_p_membrane
+        res.update({'sig_p_bend': sig_p_bend, 'sig_p_membrane': sig_p_membrane})
+
+        # creep rupture under the primary stresses at the highest temperature of the hot gas side wall
+        if self.creep is not None:
+            res.update(self.creep_rupture(solver.inner_wall_temp, sig_p_bend, sig_p_membrane))
+
+        if not self.active:
+            return res
 
         # secondary stresses at the hot gas side of the inner wall: mismatch and linear temperature gradient through the wall
         sig_axial, sig_hoop = self.mismatch(solver, r_c + t_i / 2, r_c + t_i + geom.h_c[idx] + t_o / 2, t_i, t_o)
@@ -127,8 +147,6 @@ class WallStress():
         Y     = sig_secondary / sig_y
 
         res.update({
-            'sig_p_bend':     sig_p_bend,
-            'sig_p_membrane': sig_p_membrane,
             'sig_grad':       sig_grad,
             'sig_mis_hoop':   sig_hoop,
             'sig_mis_axial':  sig_axial,
@@ -140,7 +158,42 @@ class WallStress():
             'regime':         bree_regime(X, Y),
         })
 
+        if self.cyclic:
+            # core stress check: X and Y with the mean yield strength of the hot and the cold end of the cycle, the bending stress reduced by
+            # K_t = 1.25 of a rectangular section (ASME III Div. 5, HBB-T-1332), the core stress with the yield strength of the cold end
+            sig_y_cold = float(mat.value('sig_y', self.T_ref))
+            sig_y_mean = (float(mat.value('sig_y', solver.T_inner)) + sig_y_cold) / 2
+            res.update(core_ratchet(mat, (sig_p_membrane + sig_p_bend / 1.25) / sig_y_mean, sig_secondary / sig_y_mean, sig_y_cold,
+                                    solver.inner_wall_temp, self.firing_time, self.firings))
+            # ligament life: the inner wall over the channel, held by the closeout through the ribs. The method takes the largest mismatch of
+            # the cycle, which the steady state underestimates when the closeout lags the inner wall at start up. The bound for that has the
+            # inner wall at its steady temperature with the closeout still at the temperature at shut down
+            w_rib     = geom.psi_w[idx] * (r_c + t_i)
+            eps_grad  = self.thermal_strain(solver.T_wall_hot) - self.thermal_strain(solver.T_wall_cold)
+            res.update(ligament_life(mat, self.thermal_strain(solver.T_inner) - self.thermal_strain(solver.T_outer), eps_grad,
+                                     p_coolant - p_gas, t_i, w, w_rib, solver.T_inner, solver.inner_wall_temp, self.T_ref, self.firing_time))
+            start_up  = ligament_life(mat, self.thermal_strain(solver.T_inner), eps_grad, p_coolant - p_gas, t_i, w, w_rib, solver.T_inner,
+                                      solver.inner_wall_temp, self.T_ref, self.firing_time)
+            res.update({'eps_pl_startup': start_up['eps_pl_cycle'], 'N_life_startup': start_up['N_life'], 'startup_mode': start_up['life_mode']})
+
         return res
+
+
+    def creep_rupture(self, T, sig_bend, sig_membrane):
+        # time to creep rupture of the section under the reference stress of the primary stresses, and the life fraction of the total
+        # firing time. The tensile strength limits the rupture stress only where the library has it over temperature
+        mat     = self.material
+        sig_u   = float(mat.value('sig_u', T)) if callable(mat.sig_u) else None
+        sig_ref = reference_stress(sig_bend, sig_membrane)
+        t_r, flag = self.creep.rupture_time(sig_ref, T, sig_u)
+        t_total = max(self.t_total, 1e-9)
+        return {
+            'sig_ref':      sig_ref,
+            'sig_creep':    self.creep.rupture_strength(t_total, T, sig_u),       # rupture stress for the total firing time
+            't_rupture':    t_r,                                                # [h]
+            'creep_damage': t_total / t_r if t_r > 0 else np.inf,               # life fraction, rupture at 1
+            'creep_flag':   flag,
+        }
 
 
 def x_ranges(x, sections):

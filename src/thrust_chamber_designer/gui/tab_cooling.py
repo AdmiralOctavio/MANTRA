@@ -121,6 +121,10 @@ class CoolingTab(QWidget):
         box = QGroupBox("Wall material")
         form = QFormLayout(box)
         form.addRow("Material", b.choice(lambda d: d.thermal, "material", [(k, k) for k in MATERIALS]))
+        form.addRow("Firing time", b.number(lambda d: d.thermal, "firing_time", decimals=1, minimum=0.1, maximum=1e6, step=1, suffix="s",
+                                            tooltip="Duration of one firing at steady state, for the creep rupture screening and the cyclic life"))
+        form.addRow("Firings", b.number(lambda d: d.thermal, "firings", integer=True, minimum=1, maximum=1000000,
+                                        tooltip="Number of firings over the life of the chamber, for the creep rupture screening and the cyclic life"))
         self.material_note = QLabel("")
         self.material_note.setWordWrap(True)
         form.addRow("", self.material_note)
@@ -245,7 +249,18 @@ class CoolingTab(QWidget):
             self.coolant_note.setText("")
         self.film_note.setText("%.1f %% of the fuel feed, set on the Engine tab" % (d.film.injector_fraction * 100))
         m = MATERIALS[d.thermal.material]
-        self.material_note.setText("" if m.sig_y is not None else "No yield strength in the library: the wall stress analysis is skipped")
+        notes = []
+        if m.sig_y is None:
+            notes.append("No yield strength in the library: the wall stress analysis is skipped")
+        if m.creep is None:
+            notes.append("No creep rupture data in the library: creep is not screened")
+        else:
+            notes.append("Creep data: %s%s" % (m.creep.source, ", stress x %g for printed parts" % m.creep.factor if m.creep.factor != 1 else ""))
+        if m.norton is None or m.fatigue is None:
+            notes.append("No creep rate or fatigue data in the library: ratcheting and cyclic life are not evaluated")
+        else:
+            notes.append("Cyclic life data: %s; %s" % (m.norton.source, m.fatigue.source))
+        self.material_note.setText("\n".join(notes))
         self.timer.start()
 
     def draw_preview(self):

@@ -14,8 +14,9 @@ from .tab_cooling import CoolingTab
 from .tab_engine import EngineTab
 from .tab_results import ResultsTab
 from .tab_thermal import ThermalTab
+from .tab_throttle import ThrottleTab
 from .widgets import Bindings
-from .worker import ThermalRun, results_geometry, run_in_thread
+from .worker import ThermalRun, ThrottleRun, results_geometry, run_in_thread
 from .. import pipeline
 from ..core.mass_budget import mass_budget
 
@@ -41,11 +42,13 @@ class MainWindow(QMainWindow):
         self.cooling_tab = CoolingTab(self)
         self.thermal_tab = ThermalTab(self)
         self.results_tab = ResultsTab(self)
+        self.throttle_tab = ThrottleTab(self)
         self.tabs.addTab(self.engine_tab, "Engine")
         self.tabs.addTab(self.chamber_tab, "Chamber && Nozzle")
         self.tabs.addTab(self.cooling_tab, "Cooling")
         self.tabs.addTab(self.thermal_tab, "Thermal")
         self.tabs.addTab(self.results_tab, "Results")
+        self.tabs.addTab(self.throttle_tab, "Throttle")
         self.setCentralWidget(self.tabs)
 
         self.thermal = ThermalRun(self)
@@ -53,6 +56,12 @@ class MainWindow(QMainWindow):
         self.thermal.section.connect(self.thermal_tab.add_section)
         self.thermal.done.connect(self._thermal_done)
         self.thermal.failed.connect(self._thermal_failed)
+
+        self.throttle = ThrottleRun(self)
+        self.throttle.log.connect(self.throttle_tab.add_log)
+        self.throttle.point.connect(self.throttle_tab.add_point)
+        self.throttle.done.connect(self._throttle_done)
+        self.throttle.failed.connect(self._throttle_failed)
 
         self._menus()
         self.resize(1400, 900)
@@ -83,6 +92,9 @@ class MainWindow(QMainWindow):
         action(m, "Solve &nozzle", self.solve_nozzle, "F5")
         action(m, "Run &thermal simulation", self.run_thermal, "F6")
         action(m, "&Cancel thermal simulation", self.cancel_thermal, "Esc")
+        m.addSeparator()
+        action(m, "Run t&hrottle analysis", self.run_throttle, "F7")
+        action(m, "Cancel thrott&le analysis", self.cancel_throttle)
 
         m = self.menuBar().addMenu("&View")
         group = QActionGroup(self)
@@ -108,6 +120,7 @@ class MainWindow(QMainWindow):
         self.cooling_tab.draw_preview()
         self.thermal_tab._draw_live()
         self.results_tab.reload()
+        self.throttle_tab.draw()
 
     def about(self):
         QMessageBox.about(self, "Thrust Chamber Designer",
@@ -145,7 +158,7 @@ class MainWindow(QMainWindow):
         self.chamber_tab.show_tables(nd)
 
     def refresh(self):
-        for tab in (self.engine_tab, self.chamber_tab, self.cooling_tab, self.thermal_tab):
+        for tab in (self.engine_tab, self.chamber_tab, self.cooling_tab, self.thermal_tab, self.throttle_tab):
             tab.refresh()
 
     def _title(self):
@@ -159,6 +172,7 @@ class MainWindow(QMainWindow):
         self.nozzle = None
         self.bindings.refresh()
         self.thermal_tab.folder.setText("")
+        self.throttle_tab.clear_results()
         self.chamber_tab.status.setText("Not solved yet")
         self.refresh()
         self._title()
@@ -219,6 +233,11 @@ class MainWindow(QMainWindow):
                 event.ignore()
                 return
             self.thermal.cancel()
+        if self.throttle.running:
+            if QMessageBox.question(self, "Throttle analysis running", "Stop the throttle analysis and quit?") != QMessageBox.StandardButton.Yes:
+                event.ignore()
+                return
+            self.throttle.cancel()
         if self.maybe_save():
             event.accept()
         else:
@@ -290,6 +309,43 @@ class MainWindow(QMainWindow):
         self.thermal_tab.add_log(text)
         self.statusBar().showMessage("Thermal simulation failed", 10000)
         QMessageBox.warning(self, "Thermal simulation failed", text.strip().splitlines()[-1] + "\n\nThe log on the Thermal tab has the details.")
+
+    # ── throttle ─────────────────────────────────────────────────────────
+    def run_throttle(self):
+        if self.throttle.running:
+            return
+        if not self.design.thermal.boiling:
+            QMessageBox.warning(self, "Throttle analysis", "The throttle analysis judges the points by the critical heat flux. "
+                                                           "Switch on nucleate boiling on the Thermal tab.")
+            return
+        folder = self.throttle_tab.default_folder()
+        try:
+            os.makedirs(folder, exist_ok=True)
+        except OSError as e:
+            QMessageBox.critical(self, "Results folder", "Can not create %s: %s" % (folder, e))
+            return
+        self.tabs.setCurrentWidget(self.throttle_tab)
+        design = copy.deepcopy(self.design)
+        self.throttle_tab.started_run(design, folder)
+        self.throttle.start(design, folder, self.throttle_tab.jobs.value())
+        self.statusBar().showMessage("Throttle analysis running...")
+
+    def cancel_throttle(self):
+        if self.throttle.running:
+            self.throttle.cancel()
+            self.throttle_tab.finished_run("Cancelled")
+            self.statusBar().showMessage("Throttle analysis cancelled", 5000)
+
+    def _throttle_done(self, folder, map_results, schedules):
+        self.throttle_tab.finished_run("Finished")
+        self.throttle_tab.show_results(map_results, schedules)
+        self.statusBar().showMessage("Throttle analysis finished, results in " + folder, 10000)
+
+    def _throttle_failed(self, text):
+        self.throttle_tab.finished_run("Failed")
+        self.throttle_tab.add_log(text)
+        self.statusBar().showMessage("Throttle analysis failed", 10000)
+        QMessageBox.warning(self, "Throttle analysis failed", text.strip().splitlines()[-1] + "\n\nThe log on the Throttle tab has the details.")
 
     def open_results(self):
         folder = QFileDialog.getExistingDirectory(self, "Results folder of a thermal run (with design.json and sim_data.csv)",

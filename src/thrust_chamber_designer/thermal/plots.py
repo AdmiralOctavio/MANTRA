@@ -45,6 +45,20 @@ class Plotting1D():
         return fig
 
 
+    @staticmethod
+    def shade(ax, x, sections, label=None, **kwargs):
+        # shades the sections (indices) along x, each from half way to its neighbours, so that sections of different lengths (finer steps at
+        # the throat) neither overlap nor leave gaps; neighbouring sections are joined to one span
+        edges    = np.concatenate([[x[0] - (x[1] - x[0]) / 2], (x[1:] + x[:-1]) / 2, [x[-1] + (x[-1] - x[-2]) / 2]])
+        sections = sorted(int(i) for i in sections)
+        for k, i in enumerate(sections):
+            if k == 0 or sections[k - 1] != i - 1:
+                start = i
+            if k + 1 == len(sections) or sections[k + 1] != i + 1:
+                ax.axvspan(edges[start], edges[i + 1], linewidth=0, label=label, **kwargs)
+                label = None
+
+
     def temperature_plot(self):
         fig = self.new_figure()
         ax  = fig.add_subplot()
@@ -55,7 +69,6 @@ class Plotting1D():
             ax.plot(self.geometry[:,0]*1e3, self.data[:,13]-273.15, color='k', linestyle=':', label='Coolant saturation temperature')
             # sections above the critical heat flux are solved without nucleate boiling, the wall temperatures there are not a prediction
             x   = self.geometry[:,0]*1e3
-            dx  = x[1] - x[0]
             if self.data.shape[1] > 32:
                 # state of each section beyond the CHF: post-CHF branch or solved again without boiling
                 post = np.where(self.data[:,32] == 1)[0]
@@ -63,10 +76,8 @@ class Plotting1D():
             else:
                 post = []
                 chf  = np.where((self.data[:,self.q_chf_check] > self.data[:,15]) & (self.data[:,12] > self.data[:,13]))[0]
-            for i in post:
-                ax.axvspan(x[i] - dx/2, x[i] + dx/2, color='orange', alpha=0.15, linewidth=0, label='Beyond CHF, post-CHF boiling branch' if i == post[0] else None)
-            for i in chf:
-                ax.axvspan(x[i] - dx/2, x[i] + dx/2, color='r', alpha=0.15, linewidth=0, label='Boiling limit exceeded, solved without boiling' if i == chf[0] else None)
+            self.shade(ax, x, post, 'Beyond CHF, post-CHF boiling branch', color='orange', alpha=0.15)
+            self.shade(ax, x, chf, 'Boiling limit exceeded, solved without boiling', color='r', alpha=0.15)
         ax.set_xlabel('x coordinate [mm]')
         ax.set_ylabel(r'Temperature [$^\circ$C]')
         ax.legend(loc='best')
@@ -202,11 +213,8 @@ class Plotting1D():
         ax1.set_title('Bree diagram')
 
         # X and Y along the chamber contour, the background shows the regime of every section
-        dx = x[1] - x[0]
         for key, color in (('E', 'g'), ('S', 'b'), ('P', 'orange'), ('R', 'r'), ('C', 'k')):
-            sections = [i for i in range(len(x)) if regime[i] == key]
-            for i in sections:
-                ax2.axvspan(x[i] - dx/2, x[i] + dx/2, color=color, alpha=0.15, linewidth=0, label=key + ': ' + REGIMES[key] if i == sections[0] else None)
+            self.shade(ax2, x, [i for i in range(len(x)) if regime[i] == key], key + ': ' + REGIMES[key], color=color, alpha=0.15)
         ax2.plot(x, Y, color='r', label='Y (secondary stress)')
         ax2.plot(x, X, color='b', linestyle='--', label='X (primary stress)')
         ax2.set_ylim(bottom=0)
@@ -218,6 +226,100 @@ class Plotting1D():
         fig.tight_layout()
 
         return self.finish(fig, 'bree', dpi=300)
+
+
+    def creep_plot(self):
+        # creep rupture screening: reference stress of the primary stresses against the rupture stress for the total firing time, and
+        # the life fraction along the chamber, shaded where the rupture life is extrapolated beyond the stresses of the data
+        if self.data.shape[1] <= 37 or np.all(np.isnan(self.data[:,35])):
+            return
+
+        x    = self.geometry[:,0]*1e3
+        D    = np.clip(np.nan_to_num(self.data[:,36], nan=0.0, posinf=1e6), 1e-12, 1e6)
+        flag = self.data[:,37]
+
+        fig = self.new_figure(figsize=(13, 5.5))
+        ax1, ax2 = fig.subplots(1, 2)
+
+        ax1.plot(x, self.data[:,34]/1e6, color='k', label='Creep rupture stress for the total firing time')
+        ax1.plot(x, self.data[:,33]/1e6, color='b', linestyle='-.', label='Reference stress (pressure)')
+        ax1.set_ylim(0, 1.3 * np.nanmax(self.data[:,[33, 34]]) / 1e6)
+        ax1.set_xlabel('x coordinate [mm]')
+        ax1.set_ylabel('Stress [MPa]')
+        ax1.set_title('Stresses at the hot gas side wall temperature')
+        ax1.legend(loc='upper left')
+
+        for key, color, text in ((1, 'g', 'longer than tested (extrapolated)'), (2, 'r', 'shorter than tested (extrapolated)')):
+            self.shade(ax2, x, [i for i in range(len(x)) if flag[i] == key], 'Rupture life ' + text, color=color, alpha=0.12)
+        ax2.semilogy(x, D, color='r', label='Life fraction (firing time / rupture time)')
+        ax2.axhline(1, color='k', linewidth=1, label='Creep rupture')
+        ax2.axhline(0.1, color='k', linewidth=1, linestyle=':', label='Life fraction 0.1')
+        ax2.set_ylim(0.1 * np.min(D), max(10, 10 * np.max(D)))
+        if np.min(D) <= 1e-12:
+            ax2.text(0.98, 0.5, 'Life fractions below 1e-12 are drawn at 1e-12', transform=ax2.transAxes, ha='right', va='center',
+                     fontsize=9, color='dimgray')
+        ax2.set_xlabel('x coordinate [mm]')
+        ax2.set_ylabel('Life fraction [-]')
+        ax2.set_title('Creep rupture along the chamber')
+        ax2.legend(loc='best')
+
+        fig.tight_layout()
+
+        return self.finish(fig, 'creep', dpi=300)
+
+
+    def life_plot(self):
+        # thermal ratcheting and cyclic life: firings to failure of the ligament (Porowski) and firings to 1 % creep ratchet strain of the
+        # elastic core (O'Donnell-Porowski) along the chamber, and the plastic strain per firing with the core stress parameter
+        if self.data.shape[1] <= 49 or np.all(np.isnan(self.data[:,47])):
+            return
+
+        x     = self.geometry[:,0]*1e3
+        top   = 1e7
+        clip  = lambda a: np.clip(np.nan_to_num(a, nan=top, posinf=top), 1, top)
+        # number of firings of the run: firings to the strain limit times the strain of all firings / limit
+        n_run = self.data[:,40] * self.data[:,41] / 0.01
+        n_run = n_run[np.isfinite(n_run) & (n_run > 0)]
+
+        fig = self.new_figure(figsize=(13, 5.5))
+        ax1, ax2 = fig.subplots(1, 2)
+
+        self.shade(ax1, x, [i for i in range(len(x)) if self.data[i,49] > 0 or self.data[i,42] > 0], 'Data extrapolated', color='orange', alpha=0.12)
+        if self.data.shape[1] > 52:
+            ax1.fill_between(x, clip(self.data[:,51]), clip(self.data[:,47]), color='r', alpha=0.08, linewidth=0)
+            ax1.semilogy(x, clip(self.data[:,51]), color='darkred', linewidth=1.2, label='Ligament failure, start-up bound (closeout still cold)')
+        ax1.semilogy(x, clip(self.data[:,47]), color='r', label='Ligament failure (Porowski, steady state)')
+        ax1.semilogy(x, clip(self.data[:,45]), color='r', linestyle='--', linewidth=0.8, label='Tensile instability of the thinned ligament')
+        ax1.semilogy(x, clip(self.data[:,46]), color='r', linestyle=':', linewidth=0.8, label='Fatigue and creep rupture')
+        ax1.semilogy(x, clip(self.data[:,41]), color='b', linestyle='-.', label='1 % creep ratchet strain of the core (O\'Donnell-Porowski)')
+        if len(n_run):
+            ax1.axhline(np.round(np.median(n_run)), color='k', linewidth=1, label='Firings of the run')
+        ax1.set_ylim(1, 10 * top)
+        ax1.text(0.98, 0.97, 'Lives above 1e7 firings are drawn at 1e7', transform=ax1.transAxes, ha='right', va='top', fontsize=9, color='dimgray')
+        ax1.set_xlabel('x coordinate [mm]')
+        ax1.set_ylabel('Firings')
+        ax1.set_title('Firings to failure')
+        ax1.legend(loc='lower left', fontsize=8)
+
+        ax2.plot(x, self.data[:,43]*100, color='r', label='Plastic hoop strain per firing (Porowski, steady state)')
+        if self.data.shape[1] > 52:
+            ax2.plot(x, self.data[:,50]*100, color='darkred', linestyle='--', label='Plastic hoop strain per firing, start-up bound')
+        ax2.set_xlabel('x coordinate [mm]')
+        ax2.set_ylabel('Strain per firing [%]')
+        ax2.set_ylim(bottom=0)
+        ax3 = ax2.twinx()
+        ax3.plot(x, self.data[:,38], color='b', linestyle='-.', label='Core stress parameter Z')
+        ax3.axhline(1, color='b', linewidth=0.8, linestyle=':', label='Z = 1: plastic ratcheting')
+        ax3.set_ylim(0, max(1.2, 1.1 * np.nanmax(self.data[:,38])))
+        ax3.set_ylabel('Z = core stress / yield strength')
+        lines = ax2.get_legend_handles_labels()
+        lines3 = ax3.get_legend_handles_labels()
+        ax2.legend(lines[0] + lines3[0], lines[1] + lines3[1], loc='upper left', fontsize=8)
+        ax2.set_title('Ratcheting per firing')
+
+        fig.tight_layout()
+
+        return self.finish(fig, 'life', dpi=300)
 
 
     def reynolds_plot(self):
@@ -388,4 +490,6 @@ if __name__ == "__main__":
     plot.wall_delta_plot()
     plot.stress_plot()
     plot.bree_plot()
+    plot.creep_plot()
+    plot.life_plot()
     plot.section_3d_plot()

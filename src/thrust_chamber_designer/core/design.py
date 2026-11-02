@@ -132,6 +132,20 @@ class ThermalSettings:
     run_time: Optional[float] = None       # None for steady state, otherwise the time of a transient run [s]
     save_section_figures: bool = False     # one png per section, slow
     anchor_throat: bool = True             # put a section exactly at the throat when the contour is resampled
+    firing_time: float = 10.0              # duration of one firing [s], for the creep rupture screening
+    firings: int = 10                      # number of firings over the life of the chamber
+
+
+@dataclass
+class ThrottleSettings:
+    # map of the operating range: every chamber pressure with every core O/F, on the contour of the design (see thermal.throttle)
+    pc_fractions: List[float] = field(default_factory=lambda: [1.0, 0.85, 0.7, 0.6, 0.5, 0.4, 0.3, 0.25, 0.2])    # of the design chamber pressure
+    of_ratios: List[float] = field(default_factory=list)   # core O/F, empty for 8 steps from the design O/F towards fuel rich
+    schedule: List[Tuple[float, float]] = field(default_factory=list)   # (chamber pressure fraction, core O/F) to check on top of the map
+    map_step_size: float = 4e-3            # step along the chamber contour for the map [m], the schedules use ThermalSettings
+    map_cell_size_factor: float = 0.3      # cell size of the 2D sections for the map, as a fraction of the smallest inner wall thickness
+    min_subcooling: float = 20.0           # lowest allowed distance of the coolant from its saturation temperature [K]
+    allow_post_chf: bool = True            # accept sections on the post-CHF branch, as the design point may be
 
 
 @dataclass
@@ -145,6 +159,7 @@ class Design:
     coolant: Coolant = field(default_factory=Coolant)
     channels: Channels = field(default_factory=Channels)
     thermal: ThermalSettings = field(default_factory=ThermalSettings)
+    throttle: ThrottleSettings = field(default_factory=ThrottleSettings)
 
     def to_dict(self):
         return asdict(self)
@@ -176,7 +191,7 @@ def _from_dict(cls, data):
             kwargs[key] = _from_dict(type(default), value)
         elif key == "ports":
             kwargs[key] = [_from_dict(FilmPort, port) for port in value]
-        elif key == "points":
+        elif key in ("points", "schedule"):
             kwargs[key] = [tuple(point) for point in value]
         else:
             kwargs[key] = value

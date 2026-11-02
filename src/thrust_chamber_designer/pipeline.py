@@ -273,6 +273,8 @@ def run_thermal(setup, progress=None):
         boiling=th.boiling,
         chf_model=th.chf_method,
         post_chf=th.post_chf,
+        firing_time=th.firing_time,
+        firings=th.firings,
     )
     sim.run(progress)
     return sim

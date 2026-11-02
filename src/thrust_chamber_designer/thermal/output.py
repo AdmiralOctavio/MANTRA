@@ -75,6 +75,16 @@ class Output1D:
         for key in self.stress_keys:
             setattr(self, key, np.full(len(self.geometry[:, 1]), np.nan))
         self.regime      = [''] * len(self.geometry[:, 1])
+        # creep rupture screening from creep.py, nan for materials without a Larson-Miller curve
+        self.creep_keys  = ['sig_ref', 'sig_creep', 't_rupture', 'creep_damage', 'creep_flag']
+        for key in self.creep_keys:
+            setattr(self, key, np.full(len(self.geometry[:, 1]), np.nan))
+        # thermal ratcheting and cyclic life from ratchet.py, nan for materials without creep rates and a fatigue curve
+        self.life_keys   = ['Z', 'sig_core', 'eps_ratchet', 'N_ratchet', 'ratchet_flag',
+                            'eps_pl_cycle', 'thinning', 'N_instability', 'N_fatigue_creep', 'N_life', 'life_mode', 'life_flag',
+                            'eps_pl_startup', 'N_life_startup', 'startup_mode']
+        for key in self.life_keys:
+            setattr(self, key, np.full(len(self.geometry[:, 1]), np.nan))
         self.folder_path = folder_path
 		
     def output_msg(self):
@@ -132,6 +142,26 @@ class Output1D:
                 " Bree regime",
                 " q_coolant_bottom_mean [W/m^2]",
                 " beyond CHF (0 no, 1 post-CHF branch, 2 solved without boiling)",
+                " sigma_reference_creep [Pa]",
+                " sigma_creep_rupture [Pa]",
+                " t_creep_rupture [h]",
+                " creep life fraction",
+                " creep data (0 within, 1 below lowest stress, 2 above highest stress)",
+                " core stress parameter Z",
+                " sigma_core [Pa]",
+                " creep ratchet strain of all firings",
+                " firings to 1% ratchet strain",
+                " core stress data (0 within, 1 extrapolated, 2 plastic ratcheting)",
+                " plastic hoop strain per firing",
+                " ligament thinning per firing [m]",
+                " firings to tensile instability",
+                " firings to fatigue and creep rupture",
+                " firings to ligament failure",
+                " ligament failure (0 instability, 1 fatigue, 2 creep rupture, 3 none)",
+                " ligament life data (0 within, 1 extrapolated)",
+                " plastic hoop strain per firing, start-up bound",
+                " firings to ligament failure, start-up bound",
+                " ligament failure, start-up bound (0 instability, 1 fatigue, 2 creep rupture, 3 none)",
             ]
         )
 
@@ -158,6 +188,8 @@ class Output1D:
                 + [getattr(self, key)[i] for key in self.stress_keys]
                 + [self.regime[i]]
                 + [self.q_c_bottom[i], self.chf_state[i]]
+                + [getattr(self, key)[i] for key in self.creep_keys]
+                + [getattr(self, key)[i] for key in self.life_keys]
             )
 
         f.close()

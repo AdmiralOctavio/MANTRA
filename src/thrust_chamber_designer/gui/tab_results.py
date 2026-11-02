@@ -13,7 +13,8 @@ from .widgets import PlotCanvas, fill_table, summary_table
 
 PLOTS = [("Temperature", "temperature_plot"), ("Heat flux", "heat_flux_plot"), ("Critical heat flux", "chf_plot"),
          ("Heat transfer coeff.", "heat_transfer_coeff_plot"), ("Coolant pressure", "pressure_plot"), ("Reynolds", "reynolds_plot"),
-         ("Wall temperature differences", "wall_delta_plot"), ("Stress", "stress_plot"), ("Bree diagram", "bree_plot")]
+         ("Wall temperature differences", "wall_delta_plot"), ("Stress", "stress_plot"), ("Bree diagram", "bree_plot"),
+         ("Creep", "creep_plot"), ("Cyclic life", "life_plot")]
 
 
 class ResultsTab(QWidget):
@@ -149,6 +150,20 @@ class ResultsTab(QWidget):
         if data.shape[1] > 28 and np.any(np.isfinite(data[:, 28])):
             i = int(np.nanargmax(data[:, 28]))
             rows.append(("Highest Bree Y (secondary stress / yield)", "%.2f at x = %.1f mm" % (data[i, 28], x[i]), ""))
+        if data.shape[1] > 37 and np.any(np.isfinite(data[:, 35])):
+            i = int(np.nanargmax(data[:, 36]))
+            extrapolated = " (extrapolated)" if data[i, 37] > 0 else ""
+            rows.append(("Highest creep life fraction (firing time / rupture time)", "%.3g at x = %.1f mm%s" % (data[i, 36], x[i], extrapolated), ""))
+        if data.shape[1] > 49 and np.any(np.isfinite(data[:, 47])):
+            i = int(np.nanargmin(data[:, 47]))
+            extrapolated = " (extrapolated)" if data[i, 49] > 0 else ""
+            rows.append(("Fewest firings to ligament failure (Porowski)", "%.3g at x = %.1f mm%s" % (data[i, 47], x[i], extrapolated), ""))
+            if data.shape[1] > 52 and np.any(np.isfinite(data[:, 51])):
+                i = int(np.nanargmin(data[:, 51]))
+                rows.append(("  start-up bound (closeout still cold)", "%.3g at x = %.1f mm" % (data[i, 51], x[i]), ""))
+            i = int(np.nanargmin(data[:, 41]))
+            extrapolated = " (extrapolated)" if data[i, 42] == 1 else " (plastic ratcheting)" if data[i, 42] == 2 else ""
+            rows.append(("Fewest firings to 1 % core ratchet strain (O'Donnell-Porowski)", "%.3g at x = %.1f mm%s" % (data[i, 41], x[i], extrapolated), ""))
         rows.append(("Sections", len(x), ""))
         fill_table(self.summary, rows)
 

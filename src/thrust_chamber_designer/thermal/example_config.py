@@ -74,6 +74,8 @@ def build(save_path=None, contour_csv=EXAMPLE_CONTOUR, **overrides):
     chf_method      = 'hall-mudawar'                           # critical heat flux of the coolant, use either 'meyer' (measured for ethanol), 'gambill' (any coolant, lowest values) or 'hall-mudawar' (mixture properties and channel diameter, corrected with the ethanol measurements)
     post_chf        = 'meyer'                                  # beyond the critical heat flux, use either 'meyer' (ethanol above 17 bar keeps boiling up to 1.55x the CHF, measured by Meyer et al.) or 'fallback' (section solved again with forced convection only, the most conservative)
     ambient_temp    = 288.15							       # ambient temperature for radiation boundary condition [K] (must be type float)!!
+    firing_time     = 10.0                                     # duration of one firing [s], for the creep rupture screening
+    firings         = 10                                       # number of firings over the life of the chamber
 
     # Film cooling settings for coolant originating at the injector face
     m_dot_film = 0.35 * m_dot_coolant                           # set mass flow to 0.0 to deactivate film cooing
@@ -196,7 +198,7 @@ def run(config):
     import matplotlib
     from . import regen as rc
     from . import plots as pl
-    from . import stress
+    from . import creep, ratchet, stress
 
     # figures are only saved to file, no plot windows are opened during the run
     matplotlib.use('Agg')
@@ -226,6 +228,8 @@ def run(config):
         boiling=config.boiling,
         chf_model=config.chf_method,
         post_chf=config.post_chf,
+        firing_time=config.firing_time,
+        firings=config.firings,
     )
 
     sim.run()
@@ -242,10 +246,14 @@ def run(config):
     plot.wall_delta_plot()
     plot.stress_plot()
     plot.bree_plot()
+    plot.creep_plot()
+    plot.life_plot()
     plot.section_3d_plot()
 
-    # summary of the wall stress analysis
+    # summary of the wall stress analysis, the creep rupture screening and the cyclic life
     stress.summary(config.output, config.material, config.ambient_temp)
+    creep.summary(config.output, config.material, config.firing_time, config.firings)
+    ratchet.summary(config.output, config.material, config.firing_time, config.firings)
 
     # cooling channels which are too small to be depowdered after printing
     config.cooling_geom.check_size(config.min_channel_size)

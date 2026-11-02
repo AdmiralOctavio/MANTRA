@@ -18,7 +18,9 @@ def test_example_matches_pyrocket(tmp_path):
     golden = os.path.join(GOLDEN, 'thermal_coarse_sim_data.csv')
     new = np.genfromtxt(tmp_path / 'sim_data.csv', delimiter=',', skip_header=1)
     old = np.genfromtxt(golden, delimiter=',', skip_header=1)
-    assert new.shape == old.shape
+    # columns added after the golden file (creep rupture screening) are not part of the comparison
+    assert new.shape[0] == old.shape[0] and new.shape[1] >= old.shape[1]
+    new = new[:, :old.shape[1]]
     # The results are not identical on every platform: the 2D sections are meshed by gmsh, whose mesh can differ slightly with the
     # floating point of the platform, and the sections are solved to a tolerance of 0.05 K. On Linux runners this moves the wall
     # temperatures by a few hundredths of a kelvin and other results by up to about 0.5 %. The limits are well above that and well
