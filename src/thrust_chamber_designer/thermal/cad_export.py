@@ -28,7 +28,8 @@ from the revolved gas side and outside, the faces of the channels and the end fa
 is needed, which would take minutes for helical channels, where long twisted faces run close to the curved walls.
 
 Where the number of channels changes along the chamber, the ribs and channels are lofted one by one between the ribs that start and
-end in the transitions, and the pieces of a channel that divides are fused (see split_model in create_step).
+end in the transitions, in pieces at the ends of the transitions, and the pieces of a rib or of a channel that divides are fused. The
+walls are lofted through circles in the same pieces (see split_model in create_step).
 
 The chamber axis is the x axis, lengths are in mm. The channels are open at both ends of the chamber, for manifolds to be added in CAD.
 """
@@ -46,7 +47,6 @@ OUTER = ("Outer wall", (0.65, 0.42, 0.28), "Outer wall")
 RIBS = ("Ribs", (0.55, 0.35, 0.22), "Rib %d")
 JACKET = ("Jacket", (0.75, 0.47, 0.29), "Jacket")
 CHANNELS = ("Coolant channels", (0.30, 0.65, 0.90), "Channel %d")
-GROWTH = 1.3                                                    # largest ratio of neighbouring steps between the stations of a split
 
 
 def fillet_limit(cooling_geom):
@@ -60,13 +60,14 @@ Station = namedtuple('Station', 'x r_i r_o beta')             # where a cross se
 
 
 def create_step(cooling_geom, filepath, fillet=0.0, separate=True, n_channels=None, fillet_points=25, name="Cooling jacket",
-                split_length=5e-3):
+                split_length=5e-3, min_size=0.0):
     """Writes the cooling jacket to filepath (.step) and returns a list of notes on the geometry.
 
     cooling_geom: CoolingGeometry after channel_geometry(); fillet: fillet radius of the channel corners [m], made smaller where the
     channel is too small for it; separate: inner wall, outer wall and ribs as parts of their own, otherwise one jacket; n_channels:
     number of channels and ribs in the model, all of them by default (fewer is quicker for a look, not where the channels split); name:
-    name of the assembly; split_length: length of the transition where the number of channels changes [m], see split_model()."""
+    name of the assembly; split_length: length of the transition where the number of channels changes [m], see split_model();
+    min_size: smallest printable channel [m], a note says where a channel in a transition is narrower."""
     import gmsh
 
     cg = cooling_geom
@@ -191,15 +192,28 @@ def create_step(cooling_geom, filepath, fillet=0.0, separate=True, n_channels=No
         t = twist[i]
         return rib_wire(stations[i], t + half[i], t + pitch - half[i], f[i])
 
-    def revolved(r1, r2, xs=x):
+    def revolved(r1, r2):
         # wall between the radii r1 and r2 along the chamber, revolved about the x axis
-        p = lambda curve, end: gmsh.model.getBoundary([(1, curve)], oriented=False)[end][1]
-        inner = occ.addSpline([occ.addPoint(xi, ri, 0) for xi, ri in zip(xs, r1)])
-        outer = occ.addSpline([occ.addPoint(xi, ri, 0) for xi, ri in zip(xs, r2)])
-        occ.synchronize()
-        ends = [occ.addLine(p(inner, 0), p(outer, 0)), occ.addLine(p(inner, 1), p(outer, 1))]
-        profile = occ.addPlaneSurface([occ.addCurveLoop([inner, ends[1], -outer, -ends[0]])])
+        p1, p2 = ([occ.addPoint(xi, ri, 0) for xi, ri in zip(x, r)] for r in (r1, r2))
+        profile = [occ.addLine(p2[0], p1[0]), occ.addSpline(p1), occ.addLine(p1[-1], p2[-1]), -occ.addSpline(p2)]
+        profile = occ.addPlaneSurface([occ.addCurveLoop(profile)])
         return [dt for dt in occ.revolve([(2, profile)], 0, 0, 0, 1, 0, 0, 2 * np.pi) if dt[0] == 3]
+
+    def circle(xi, r, add):
+        # circle about the axis starting on the y axis like the revolved faces
+        return add([occ.addCircle(xi, 0, 0, r, zAxis=[1, 0, 0], xAxis=[0, 1, 0])])
+
+    def lofted_wall(r1, r2, xs, ends):
+        # wall between the radii r1 and r2 along the chamber, lofted through circles from each of the stations ends to the next like the
+        # ribs and channels, so that they fit it: a loft and a spline through the same points differ near the ends of the loft
+        faces = []
+        for r in (r1, r2):
+            for a, b in zip(ends[:-1], ends[1:]):
+                faces += [dt for dt in occ.addThruSections([circle(xs[i], r[i], occ.addWire) for i in range(a, b + 1)], makeSolid=False,
+                                                           makeRuled=False) if dt[0] == 2]
+        for i in (0, len(xs) - 1):
+            faces.append((2, occ.addPlaneSurface([circle(xs[i], r2[i], occ.addCurveLoop), circle(xs[i], r1[i], occ.addCurveLoop)])))
+        return [(3, occ.addVolume([occ.addSurfaceLoop([tag for _, tag in faces], sewing=True)]))]
 
     def lofted(section, solid=True):
         # one rib or channel lofted through its cross sections at the stations, and turned by the channel pitch for the others. As
@@ -221,8 +235,7 @@ def create_step(cooling_geom, filepath, fillet=0.0, separate=True, n_channels=No
             curve = occ.addSpline([occ.addPoint(xi, ri, 0) for xi, ri in zip(xs, r)])
             faces += [dt for dt in occ.revolve([(1, curve)], 0, 0, 0, 1, 0, 0, 2 * np.pi) if dt[0] == 2]
         for i, holes in zip((0, len(xs) - 1), openings):
-            # circles about the axis starting on the y axis like the revolved faces
-            rings = [occ.addCurveLoop([occ.addCircle(xs[i], 0, 0, r, zAxis=[1, 0, 0], xAxis=[0, 1, 0])]) for r in (outside[i], gas[i])]
+            rings = [circle(xs[i], r, occ.addCurveLoop) for r in (outside[i], gas[i])]
             faces.append((2, occ.addPlaneSurface(rings + holes())))
         return [(3, occ.addVolume([occ.addSurfaceLoop([tag for _, tag in faces], sewing=True)]))]
 
@@ -240,45 +253,43 @@ def create_step(cooling_geom, filepath, fillet=0.0, separate=True, n_channels=No
                 raise ValueError('The %d channels do not split evenly into %d at x = %.1f mm: the STEP model needs a whole number of '
                                  'channels from each' % (min(a, b), max(a, b), xm[j]))
 
-        # the transitions as long as split_length where there is room between their neighbours and the ends of the chamber
-        L = np.full(len(xm), split_length * 1e3)
+        # the transitions start at the first (or end at the last) section of the thermal model with the more channels and lie on that
+        # side, where the thermal model has the narrower channels: the channels beside a new rib are no narrower than those it checked.
+        # As long as split_length, in whole steps of the thermal model, where there is room before the neighbouring transitions and the
+        # ends of the chamber
+        side = np.where(n_run[1:] > n_run[:-1], 1, -1)                 # downstream for a split, upstream for a merge
+        tip = np.where(side > 0, cuts, cuts - 1)                      # station where the new ribs start or end
+        far = tip.copy()                                              # station at the other end of the transition
         for j in range(len(xm)):
-            room = 0.8 * min(xm[j] - x[0] if j == 0 else (xm[j] - xm[j-1]) / 2, x[-1] - xm[j] if j == len(xm) - 1 else (xm[j+1] - xm[j]) / 2)
-            if L[j] / 2 > room:
+            k = j + side[j]
+            if 0 <= k < len(xm):
+                room = abs(tip[k] - tip[j]) / (2 if side[k] == -side[j] else 1)
+            else:
+                room = len(x) - 1 - tip[j] if side[j] > 0 else tip[j]
+            dx = abs(x[min(max(tip[j] + side[j], 0), len(x) - 1)] - x[tip[j]])
+            wanted = max(int(round(split_length * 1e3 / dx)), 1)
+            steps = min(wanted, int(0.8 * room))
+            if steps < 1:
+                raise ValueError('There is no room for the channel split at x = %.1f mm in the STEP model' % x[tip[j]])
+            far[j] = tip[j] + side[j] * steps
+            if steps < wanted:
                 notes.append('The channel split at x = %.1f mm is %.1f mm long instead of %.1f mm, there is no room for more'
-                             % (xm[j], 2 * room, split_length * 1e3))
-                L[j] = 2 * room
-        lo, hi = xm - L / 2, xm + L / 2
+                             % (x[tip[j]], abs(x[far[j]] - x[tip[j]]), split_length * 1e3))
+        lo, hi = x[np.minimum(tip, far)], x[np.maximum(tip, far)]
+        tip, L = x[tip], hi - lo
 
-        # stations: those of the thermal model outside the transitions and not too close to them, evenly spaced in the transitions, and
-        # more in between where the spacing changes, by GROWTH at most from one station to the next. The loft swings out and folds
-        # between sections spaced very unevenly
+        # stations: those of the thermal model outside the transitions, which are lofted on their own (see chunks), evenly spaced in them
         u = np.arange(17) / 16
-        near = np.any((x[:,None] > lo - 0.1 * L) & (x[:,None] < hi + 0.1 * L), axis=1)
-        near[[0, -1]] = False
-        grid = [x[~near]]
+        grid = [x[~np.any((x[:,None] > lo) & (x[:,None] < hi), axis=1)]]
         for j in range(len(xm)):
-            p = lo[j] + (hi[j] - lo[j]) * u
-            p[0], p[-1] = lo[j], hi[j]
-            grid.append(p)
-        A = np.sort(np.concatenate(grid))
-        gaps = np.diff(A)
-        fine = np.minimum(np.r_[gaps[0], gaps], np.r_[gaps, gaps[-1]])    # shortest step next to each station
-        step = lambda p: np.min(fine + (GROWTH - 1) * np.abs(p - A))   # longest step at p
-        X = [A[0]]
-        for a, b in zip(A[:-1], A[1:]):
-            steps, p = [], a
-            while p < b - 1e-9:
-                steps.append(step(p))
-                p += steps[-1]
-            X += list(a + (b - a) * np.cumsum(steps)[:-1] / sum(steps)) + [b]
-        X = np.array(X)
+            grid.append((lo[j] + (hi[j] - lo[j]) * u)[1:-1])
+        X = np.sort(np.concatenate(grid))
         p_lo, p_hi = [int(np.flatnonzero(X == v)[0]) for v in lo], [int(np.flatnonzero(X == v)[0]) for v in hi]
         zone = np.full(len(X), -1)
         for j in range(len(xm)):
             zone[p_lo[j]:p_hi[j] + 1] = j
         U = np.where(zone >= 0, (X - lo[zone]) / (hi[zone] - lo[zone]), 0.0)
-        run = np.searchsorted(xm, X)                                 # run of stations, outside the transitions
+        run = np.searchsorted(tip, X)                                # run of stations, outside the transitions
         RC, RI, RO, ROUT, B, TW, PSI = (np.interp(X, x, v) for v in (r_c, r_i, r_o, r_out, beta, twist, cg.psi))
         F = np.interp(X, x, f)
         for j in range(len(xm)):
@@ -287,22 +298,23 @@ def create_step(cooling_geom, filepath, fillet=0.0, separate=True, n_channels=No
         theta0 = np.pi / n_run[0]                                    # first rib, half a pitch from the first channel like without splits
 
         present = lambda q, r: (q * int(n_run[r])).denominator == 1
-        smooth = lambda u: u * u * (3 - 2 * u)
         # leading edge: a blunt tip of 5 % of the width, widening quickly at first and running into the full width without a kink. A
         # round (elliptic) nose widens infinitely fast at the tip, which the loft can not follow
         lead = lambda u: 0.05 + 0.95 * (1 - (1 - u)**3)
 
         def shape(q, p):
-            # half angle around the axis and fillet radius of the rib at the angle theta0 + 2 pi q at station p
+            # half angle around the axis and fillet radius of the rib at the angle theta0 + 2 pi q at station p. The ribs that go on
+            # narrow as fast as the new ribs between them grow, which keeps the channels beside a new rib as wide as after the split
             full = lambda r: np.pi * (1 - PSI[p]) / n_run[r]
             j = zone[p]
             if j < 0:
                 return full(run[p]), F[p]
-            a, b = present(q, j), present(q, j + 1)
-            if a and b:
-                return full(j) + (full(j + 1) - full(j)) * smooth(U[p]), F[p]
-            k = lead(U[p]) if b else lead(1 - U[p])
-            return full(j + 1 if b else j) * k, F[p] * k
+            many = j + 1 if n_run[j + 1] > n_run[j] else j               # the side with more channels, where the new ribs are
+            k = lead(U[p]) if many == j + 1 else lead(1 - U[p])          # how far the new ribs have grown
+            if present(q, j) and present(q, j + 1):
+                few = 2 * j + 1 - many
+                return full(few) + (full(many) - full(few)) * k, F[p]
+            return full(many) * k, F[p] * k
 
         # the ribs: (q, first and last station) for every run of transitions it goes through
         ribs = []
@@ -333,16 +345,36 @@ def create_step(cooling_geom, filepath, fillet=0.0, separate=True, n_channels=No
         def angle(q, p):
             return TW[p] + theta0 + 2 * np.pi * float(q)
 
+        cut_at = sorted(set(p_lo) | set(p_hi))
+
+        def chunks(section, p0, p1):
+            # solids lofted through the sections from station p0 to p1, in a chunk for every transition and the stretches between them.
+            # OCC fits one surface through all sections of a loft, which swings out far from the close sections of a transition when
+            # the loft goes on through the sections of the thermal model
+            ends = [p0] + [p for p in cut_at if p0 < p < p1] + [p1]
+            return [dt for a, b in zip(ends[:-1], ends[1:])
+                    for dt in occ.addThruSections([section(p) for p in range(a, b + 1)], makeSolid=True, makeRuled=False) if dt[0] == 3]
+
+        def fused(solids):
+            # one body from solids that meet at their end faces
+            return occ.fuse(solids[:1], solids[1:])[0] if len(solids) > 1 else solids
+
         def rib_body(q, p0, p1):
-            wires = []
-            for p in range(p0, p1 + 1):
+            def section(p):
                 h, fi = shape(q, p)
-                wires.append(rib_wire(ST[p], angle(q, p) - h, angle(q, p) + h, fi))
-            return [dt for dt in occ.addThruSections(wires, makeSolid=True, makeRuled=False) if dt[0] == 3]
+                return rib_wire(ST[p], angle(q, p) - h, angle(q, p) + h, fi)
+            return fused(chunks(section, p0, p1))
 
         def piece_wire(c, p, add=occ.addWire):
             (ha, fa), (hb, fb) = shape(c[0] % 1, p), shape(c[1] % 1, p)
             return channel_wire(ST[p], angle(c[0], p) + ha, angle(c[1], p) - hb, fa, fb, add)
+
+        # the narrowest channel of the model, at the bottom of the channel and perpendicular to it like in the thermal model
+        w, x_w = min(((angle(c[1], p) - shape(c[1] % 1, p)[0] - angle(c[0], p) - shape(c[0] % 1, p)[0]) * RI[p] * np.cos(B[p]), X[p])
+                     for c in pieces for p in range(c[2], c[3] + 1))
+        if w < min_size * 1e3 * (1 - 1e-9):
+            notes.append('The narrowest channel is %.2f mm wide at x = %.1f mm, less than the smallest printable channel of %.2f mm'
+                         % (w, x_w, min_size * 1e3))
 
         def channel_bodies(c_all):
             # pieces that meet where a channel divides are one channel: fused
@@ -358,12 +390,8 @@ def create_step(cooling_geom, filepath, fillet=0.0, separate=True, n_channels=No
                         group[root(l)] = root(k)
             bodies = []
             for g in sorted({root(k) for k in range(len(c_all))}):
-                solids = [[dt for dt in occ.addThruSections([piece_wire(c, p) for p in range(c[2], c[3] + 1)], makeSolid=True,
-                                                            makeRuled=False) if dt[0] == 3] for k, c in enumerate(c_all) if root(k) == g]
-                if len(solids) > 1:
-                    fused, _ = occ.fuse(solids[0], [dt for s in solids[1:] for dt in s])
-                    solids = [fused]
-                bodies += solids[0]
+                bodies += fused([dt for k, c in enumerate(c_all) if root(k) == g
+                                 for dt in chunks(lambda p, c=c: piece_wire(c, p), c[2], c[3])])
             return bodies
 
         # one sector of the chamber, turned around it
@@ -387,7 +415,9 @@ def create_step(cooling_geom, filepath, fillet=0.0, separate=True, n_channels=No
             notes.append('The %d channels %s %d over %.1f mm at x = %.1f to %.1f mm' % (n_run[j], 'split into' if n_run[j+1] > n_run[j]
                          else 'merge into', n_run[j+1], L[j], lo[j], hi[j]))
         if separate:
-            return (INNER, OUTER, RIBS, CHANNELS), [revolved(RC, RI, X), revolved(RO, ROUT, X), repeated(make_ribs), repeated(make_channels)]
+            ends = [0] + cut_at + [len(X) - 1]
+            return (INNER, OUTER, RIBS, CHANNELS), [lofted_wall(RC, RI, X, ends), lofted_wall(RO, ROUT, X, ends), repeated(make_ribs),
+                                                    repeated(make_channels)]
 
         # the faces of the channels for the jacket, without their ends
         solids = repeated(make_channels)

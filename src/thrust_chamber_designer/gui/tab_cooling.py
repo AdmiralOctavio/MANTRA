@@ -129,8 +129,9 @@ class CoolingTab(QWidget):
                                               tooltip="Radius of the channel corners in the STEP model, made smaller where a channel is "
                                                       "too small for it. Not part of the thermal model"))
         self.split_length = b.number(cg, "split_length", scale=1e-3, decimals=1, minimum=0.5, maximum=200, step=0.5, suffix="mm",
-                                     tooltip="Length over which the channels divide in the STEP model: the ribs that go on change their "
-                                             "width smoothly and the new ribs grow from a rounded leading edge. Not part of the thermal model")
+                                     tooltip="Length over which the channels divide in the STEP model, rounded to whole steps of the thermal "
+                                             "model: the new ribs grow from a blunt leading edge and the ribs that go on narrow as fast, so "
+                                             "the channels keep their width. Not part of the thermal model")
         form.addRow("Split transition", self.split_length)
         self.step_button = QPushButton("Export 3D model (STEP)...")
         self.step_button.setToolTip("Chamber wall and coolant channels as solids for CAD (Fusion 360, CATIA, SolidWorks...)")

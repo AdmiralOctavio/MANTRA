@@ -201,7 +201,7 @@ def write_step(nd, folder, design=None, separate=True):
     _, cooling_geom = cooling_geometry(nd, d, full_length=True)
     path = os.path.join(folder, "Cooling_Jacket.step")
     notes = create_step(cooling_geom, path, fillet=d.channels.fillet_radius, separate=separate, name=d.name or "Cooling jacket",
-                        split_length=d.channels.split_length)
+                        split_length=d.channels.split_length, min_size=d.channels.min_channel_size)
     return path, notes
 
 
