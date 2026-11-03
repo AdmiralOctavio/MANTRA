@@ -79,6 +79,27 @@ def test_cooling_tab_exports_step(app, tmp_path, monkeypatch):
     window.close()
 
 
+def test_cooling_tab_channel_splits(app):
+    from thrust_chamber_designer.gui.main_window import MainWindow
+
+    window = MainWindow(app)
+    tab = window.cooling_tab
+    window.design.channels.n = 20
+    tab._add_split()
+    assert window.design.channels.splits == [(10.0, 40)]
+    tab.splits.item(0, 0).setText("-12")
+    tab.splits.item(0, 1).setText("10")
+    assert window.design.channels.splits == [(-12.0, 10)]
+    assert tab.split_length.isEnabled() and tab.splits_note.text() == ""
+    tab.splits.item(0, 1).setText("15")
+    assert "do not split evenly" in tab.splits_note.text()
+    tab.draw_preview()
+    tab._remove_split()
+    assert window.design.channels.splits == [] and not tab.split_length.isEnabled()
+    window.modified = False
+    window.close()
+
+
 def test_throttle_tab_inputs(app):
     from thrust_chamber_designer.gui.main_window import MainWindow
     from thrust_chamber_designer.gui.tab_throttle import parse_schedule
