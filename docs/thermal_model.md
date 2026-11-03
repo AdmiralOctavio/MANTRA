@@ -123,10 +123,16 @@ new rib. Each channel should split into a whole number of channels (e.g. 15 into
 
 The STEP model includes the splits, which need a whole number of channels from each channel. The ribs lie on one grid of angles, so the ribs of the
 fewer channels run through the transition and the others start (or end) in the middle of a channel. Over 'Split transition' (5 mm by default,
-shorter where the next split or the end of the chamber is closer) the ribs that run through change their width smoothly, and the new ribs grow from a
-blunt leading edge, 5 % of their width, to their full width, their corner fillets with them, so the channel divides gradually. A channel that
-divides is one body in the model. The transition is centred between the two sections of the thermal model where the number of channels changes;
-the thermal model itself does not include it.
+rounded to whole steps of the thermal model and shorter where the next split or the end of the chamber is closer) the new ribs grow from a blunt
+leading edge, 5 % of their width, to their full width, their corner fillets with them, and the ribs that run through narrow just as fast. The
+channels beside a new rib keep the width they have after the split all through the transition, so the channel divides gradually without pinching.
+The transition starts at the first section of the thermal model with the more channels (or ends at the last one, where the channels merge) and
+lies on that side, so no channel of the STEP model is narrower than the channels the thermal model checks against 'min_channel_size'; a note
+says so if one is narrower anyway. A channel that divides is one body in the model. The thermal model itself does not include the transition.
+
+The ribs, channels and walls are lofted in pieces, one for every transition and one for each stretch between them: a single loft through the
+closely spaced sections of a transition and the sections of the thermal model swings far out of the chamber wall. The pieces are fused into
+one body each. The walls are lofted through circles in the same pieces so that the ribs and channels fit them, to within about 0.02 mm.
 
 
 ### Helical cooling channels
