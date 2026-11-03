@@ -447,7 +447,7 @@ class HeatTransfer():
         self.wall_stress = self.stress.section(idx, solver, self.coolant.P, self.gas.p_s[idx])
 		
         # ensure that FiPy output object is actually a float, multiplied by the number of channels for total area. Q_c is per length of the channel
-        Q = float(solver.Q_c) * self.section_length[idx] * self.cooling_geometry.n_channels
+        Q = float(solver.Q_c) * self.section_length[idx] * self.cooling_geometry.n_channels[idx]
 
  
         # update cooling fluid and pressure. Expected temperature rise and pressure drop 

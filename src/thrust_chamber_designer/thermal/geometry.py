@@ -216,8 +216,15 @@ class CoolingGeometry():
     """
     def __init__(self, chamber_geometry, h_c, psi, t_w_i, t_w_o, n_channels, helix_angle=0.0):
         self.geom       = chamber_geometry                                 # points along the chamber contour [x,y]
-        self.n_channels = n_channels                                       # number of cooling channels
-        
+
+        if callable(n_channels):
+            # number of channels as a function of x, e.g. split channels away from the throat
+            self.n_channels = np.rint(n_channels(self.geom[:,0])).astype(int) * np.ones(len(self.geom[:,1]), dtype=int)
+        else:
+            self.n_channels = np.full(len(self.geom[:,1]), int(n_channels))  # number of cooling channels in each section
+        if np.any(self.n_channels < 1):
+            raise ValueError('n_channels must be at least 1')
+
         # some inputs can be functions of x coordinates 
         if type(h_c) == float:
             # check if input is a single float
@@ -261,8 +268,8 @@ class CoolingGeometry():
             raise ValueError('helix_angle must be at least 0 and below 90 degrees')
 
         # angular sections of the 2D section mesh, which is the cross section perpendicular to the channels: narrower by cos(beta) for helical channels
-        self.psi_c = 2 * np.pi * self.psi / n_channels * np.cos(self.beta)             # radial section of single cooling channel
-        self.psi_w = 2 * np.pi * (1 - self.psi) / n_channels * np.cos(self.beta)       # raidal section of single uncooled wall segment
+        self.psi_c = 2 * np.pi * self.psi / self.n_channels * np.cos(self.beta)        # radial section of single cooling channel
+        self.psi_w = 2 * np.pi * (1 - self.psi) / self.n_channels * np.cos(self.beta)  # raidal section of single uncooled wall segment
 
 
     def channel_geometry(self):

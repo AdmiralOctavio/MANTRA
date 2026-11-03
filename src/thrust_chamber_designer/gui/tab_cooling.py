@@ -91,7 +91,30 @@ class CoolingTab(QWidget):
         box = QGroupBox("Cooling channels")
         form = QFormLayout(box)
         cg = lambda d: d.channels
-        form.addRow("Number of channels", b.number(cg, "n", integer=True, minimum=1, maximum=1000))
+        form.addRow("Number of channels", b.number(cg, "n", integer=True, minimum=1, maximum=1000,
+                                                   tooltip="At the injector end, up to the first change below"))
+        self.splits = QTableWidget(0, 2)
+        self.splits.setHorizontalHeaderLabels(["x [mm]", "Channels from x on"])
+        self.splits.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.splits.verticalHeader().setVisible(False)
+        self.splits.setMaximumHeight(110)
+        self.splits.setToolTip("Changes of the number of channels along the chamber, e.g. fewer around the throat where the channels would "
+                               "be too narrow. Each channel should split into a whole number of channels")
+        self.splits.itemChanged.connect(self._splits_changed)
+        b.custom(self.splits, self._show_splits)
+        row = QHBoxLayout()
+        add, remove = QPushButton("Add change"), QPushButton("Remove change")
+        add.clicked.connect(self._add_split)
+        remove.clicked.connect(self._remove_split)
+        row.addWidget(add)
+        row.addWidget(remove)
+        row.addStretch(1)
+        form.addRow("Channel splits", self.splits)
+        form.addRow("", row)
+        self.splits_note = QLabel("")
+        self.splits_note.setWordWrap(True)
+        self.splits_note.setObjectName("warning")
+        form.addRow("", self.splits_note)
         form.addRow("Channel height", b.profile(cg, "height", scale=1e-3, decimals=3, suffix="mm", maximum=1000))
         form.addRow("Fill factor", b.profile(cg, "fill_factor", scale=0.01, decimals=1, suffix="%", maximum=99))
         form.addRow("Inner wall", b.profile(cg, "inner_wall", scale=1e-3, decimals=3, suffix="mm", maximum=1000))
@@ -105,6 +128,10 @@ class CoolingTab(QWidget):
         form.addRow("Corner fillet", b.number(cg, "fillet_radius", scale=1e-3, decimals=2, minimum=0, maximum=10, step=0.05, suffix="mm",
                                               tooltip="Radius of the channel corners in the STEP model, made smaller where a channel is "
                                                       "too small for it. Not part of the thermal model"))
+        self.split_length = b.number(cg, "split_length", scale=1e-3, decimals=1, minimum=0.5, maximum=200, step=0.5, suffix="mm",
+                                     tooltip="Length over which the channels divide in the STEP model: the ribs that go on change their "
+                                             "width smoothly and the new ribs grow from a rounded leading edge. Not part of the thermal model")
+        form.addRow("Split transition", self.split_length)
         self.step_button = QPushButton("Export 3D model (STEP)...")
         self.step_button.setToolTip("Chamber wall and coolant channels as solids for CAD (Fusion 360, CATIA, SolidWorks...)")
         self.step_button.clicked.connect(self.export_step)
@@ -202,6 +229,45 @@ class CoolingTab(QWidget):
         self._show_ports()
         self.window.design_changed()
 
+    # ── channel splits ───────────────────────────────────────────────────
+    def _show_splits(self):
+        self.splits.blockSignals(True)
+        self.splits.setRowCount(0)
+        for x, n in self.window.design.channels.splits:
+            r = self.splits.rowCount()
+            self.splits.insertRow(r)
+            self.splits.setItem(r, 0, QTableWidgetItem("%g" % x))
+            self.splits.setItem(r, 1, QTableWidgetItem("%d" % n))
+        self.splits.blockSignals(False)
+
+    def _splits_changed(self, *_):
+        splits = []
+        for r in range(self.splits.rowCount()):
+            try:
+                x, n = float(self.splits.item(r, 0).text()), int(float(self.splits.item(r, 1).text()))
+            except (AttributeError, ValueError):
+                continue
+            if n >= 1:
+                splits.append((x, n))
+        self.window.design.channels.splits = splits
+        self.window.design_changed()
+
+    def _add_split(self):
+        ch = self.window.design.channels
+        # by default the channels split in two downstream of the last change, or of the injector end
+        x, n = ch.splits[-1] if ch.splits else (0.0, ch.n)
+        ch.splits.append((x + 10.0, 2 * n))
+        self._show_splits()
+        self.window.design_changed()
+
+    def _remove_split(self):
+        rows = sorted({i.row() for i in self.splits.selectedIndexes()}, reverse=True) or [self.splits.rowCount() - 1]
+        for r in rows:
+            if 0 <= r < len(self.window.design.channels.splits):
+                del self.window.design.channels.splits[r]
+        self._show_splits()
+        self.window.design_changed()
+
     # ── STEP export ──────────────────────────────────────────────────────
     def export_step(self):
         from .main_window import _sizing_inputs
@@ -239,6 +305,9 @@ class CoolingTab(QWidget):
     def refresh(self):
         d = self.window.design
         self.helix.setEnabled(d.channels.helical)
+        self.split_length.setEnabled(bool(d.channels.changes()))
+        self.splits_note.setText("\n".join("The %d channels do not split evenly into %d at x = %g mm" % (min(a, b), max(a, b), x)
+                                           for x, a, b in d.channels.uneven_changes()))
         p = d.propellants
         default = props.default_coolant(p.fuel, p.fuel_concentration)
         if default is not None and (default[0] != d.coolant.fluids or not np.allclose(default[1], d.coolant.mass_fractions[:len(default[1])])
@@ -274,7 +343,7 @@ class CoolingTab(QWidget):
         ch = self.window.design.channels
         x = nd.solution.wall_x / 1000
         r = nd.solution.wall_y / 1000
-        n = max(int(ch.n), 1)
+        n = np.maximum(ch.count(x), 1)
         beta = np.radians(ch.helix_angle(x)) if ch.helical else np.zeros_like(x)
         psi = ch.fill_factor(x)
         h_c, t_i = ch.height(x), ch.inner_wall(x)
@@ -286,7 +355,7 @@ class CoolingTab(QWidget):
         ax = fig.add_subplot(2, 1, 1)
         r_c, r_ci, r_co = r[i] * 1e3, (r[i] + t_i[i]) * 1e3, (r[i] + t_i[i] + h_c[i]) * 1e3
         r_o = r_co + ch.outer_wall * 1e3
-        pitch = 360.0 / n * np.cos(beta[i])
+        pitch = 360.0 / n[i] * np.cos(beta[i])
         span = 3 * pitch
         ax.add_patch(Wedge((0, 0), r_o, 90 - span / 2, 90 + span / 2, width=r_o - r_c, facecolor="#c98a5b", edgecolor="#5a3a20", lw=0.8))
         for k in (-1, 0, 1):
@@ -296,7 +365,8 @@ class CoolingTab(QWidget):
         ax.set_xlim(-r_o * np.sin(np.radians(span / 2)) * 1.1, r_o * np.sin(np.radians(span / 2)) * 1.1)
         ax.set_ylim(r_c * np.cos(np.radians(span / 2)) * 0.97, r_o * 1.02)
         ax.set_aspect("equal")
-        ax.set_title("Throat, x = %.1f mm%s" % (round(x[i] * 1e3, 1) + 0.0, ", perpendicular to the channels" if ch.helical else ""), fontsize=9)
+        ax.set_title("Throat, x = %.1f mm, %d channels%s" % (round(x[i] * 1e3, 1) + 0.0, n[i], ", perpendicular to the channels" if ch.helical else ""),
+                     fontsize=9)
         ax.set_xlabel("mm")
 
         ax = fig.add_subplot(2, 1, 2)
@@ -304,6 +374,11 @@ class CoolingTab(QWidget):
         ax.plot(x * 1e3, h_c * 1e3, label="Channel height")
         ax.plot(x * 1e3, t_i * 1e3, label="Inner wall")
         ax.axhline(ch.min_channel_size * 1e3, color="r", lw=0.8, ls="--", label="Smallest printable")
+        for x_s, a, b in ch.changes():
+            # where the channels split or merge, with the number of channels downstream
+            ax.axvline(x_s, color="0.5", lw=0.8, ls=":")
+            ax.annotate("%d → %d" % (a, b), (x_s, 0), xycoords=("data", "axes fraction"), xytext=(2, 2), textcoords="offset points",
+                        ha="left", va="bottom", fontsize=7, color="0.4")
         ax2 = ax.twinx()
         ax2.plot(x * 1e3, r * 1e3, color="0.6", lw=0.8)
         ax2.set_ylabel("Contour radius [mm]", color="0.5")

@@ -46,6 +46,50 @@ def test_profile_interpolates_in_mm_and_holds_ends():
     assert Profile(3.0).as_input() == 3.0
 
 
+def test_channel_splits_are_steps_along_the_chamber(tmp_path):
+    from thrust_chamber_designer.core.design import Channels
+    ch = Channels(n=30, splits=[(15, 30), (-15, 15), (40, 45)])
+    np.testing.assert_array_equal(ch.count(np.array([-0.05, -0.015, 0.0, 0.015, 0.03, 0.05])), [30, 15, 15, 30, 30, 45])
+    assert ch.changes() == [(-15.0, 30, 15), (15.0, 15, 30), (40.0, 30, 45)]
+    assert ch.uneven_changes() == [(40.0, 30, 45)]
+    assert Channels(n=12).count(0.0) == 12 and Channels(n=12, splits=[(0, 12)]).changes() == []
+
+    design = Design()
+    design.channels.splits = [(-15, 8), (15, 16)]
+    path = tmp_path / "design.json"
+    design.save(path)
+    assert Design.load(path) == design
+
+
+def test_split_channels_keep_the_flow_area():
+    from thrust_chamber_designer.thermal.geometry import CoolingGeometry
+    from thrust_chamber_designer.core.design import Channels
+    x = np.linspace(-0.04, 0.04, 81)
+    geom = np.column_stack([x, 0.01 + 2 * x**2])
+    ch = Channels(n=24, splits=[(-10, 12), (10, 24)])
+    split = CoolingGeometry(geom, 1.5e-3, 0.4, 1e-3, 1e-3, ch.count)
+    plain = CoolingGeometry(geom, 1.5e-3, 0.4, 1e-3, 1e-3, 24)
+    split.channel_geometry()
+    plain.channel_geometry()
+
+    throat = np.abs(x) < 0.01 - 1e-9
+    np.testing.assert_array_equal(split.n_channels, np.where(throat, 12, 24))
+    # the same fill factor: half the channels are twice as wide, with the same flow area and a larger hydraulic diameter
+    np.testing.assert_allclose(split.psi_c[throat], 2 * plain.psi_c[throat])
+    np.testing.assert_allclose(split.psi_c[~throat], plain.psi_c[~throat])
+    np.testing.assert_allclose(split.A_c, plain.A_c)
+    assert np.all(split.D_h[throat] > plain.D_h[throat])
+    assert plain.n_channels.shape == x.shape
+
+    # the STEP model needs a whole number of channels from each channel
+    pytest.importorskip("gmsh")
+    from thrust_chamber_designer.thermal.cad_export import create_step
+    uneven = CoolingGeometry(geom, 1.5e-3, 0.4, 1e-3, 1e-3, Channels(n=20, splits=[(0, 30)]).count)
+    uneven.channel_geometry()
+    with pytest.raises(ValueError, match="split evenly"):
+        create_step(uneven, "unused.step")
+
+
 def test_resampling_puts_a_section_at_the_throat():
     x = np.linspace(-0.05, 0.03, 400)
     y = 0.01 + 0.5 * (x - 0.00123) ** 2
@@ -133,6 +177,49 @@ def test_step_model_parts(tmp_path, helical, fillet, separate):
         assert len(volumes) == sum(count for count, _ in expected.values())
         xmin, _, _, xmax, _, _ = gmsh.model.getBoundingBox(-1, -1)
         assert xmin == pytest.approx(nd.solution.wall_x[0], abs=0.1)
+    finally:
+        gmsh.finalize()
+
+
+@pytest.mark.parametrize("helical, separate", [(False, True), (True, False)])
+def test_step_model_with_channel_splits(tmp_path, helical, separate):
+    import gmsh
+    design = Design(name="Split engine")
+    design.channels.n = 16
+    design.channels.splits = [(-12, 8), (12, 16)]          # fewer, wider channels around the throat
+    design.channels.helical = helical
+    design.thermal.step_size = 0.005
+    nd = pipeline.design_nozzle(design)
+    path, notes = pipeline.write_step(nd, str(tmp_path), separate=separate)
+    assert any("merge into 8" in n for n in notes) and any("split into 16" in n for n in notes)
+
+    _, cg = pipeline.cooling_geometry(nd, full_length=True)
+    x = cg.geom[:,0]
+    ring = lambda a, b: np.trapezoid(np.pi * (b**2 - a**2), x) * 1e9
+    # 8 channels that divide into two at either end; 8 ribs all along and 16 that end and start in the transitions
+    if separate:
+        counts = {"Inner wall": 1, "Outer wall": 1, "Ribs": 24, "Coolant channels": 8}
+    else:
+        counts = {"Jacket": 1, "Coolant channels": 8}
+    gmsh.initialize()
+    try:
+        gmsh.option.setNumber('General.Terminal', 0)
+        gmsh.option.setNumber('Geometry.OCCImportLabels', 1)
+        gmsh.model.occ.importShapes(path)
+        gmsh.model.occ.synchronize()
+        volumes = gmsh.model.getEntities(3)
+        assert set(gmsh.model.getEntities(2)) == set(gmsh.model.getBoundary(volumes, combined=False, oriented=False))
+        parts = {part: [gmsh.model.occ.getMass(*v) for v in volumes if part in gmsh.model.getEntityName(*v)] for part in counts}
+        assert {part: len(v) for part, v in parts.items()} == counts
+        assert len(volumes) == sum(counts.values())
+        # the parts fill the jacket, and the channels hold about the coolant of the thermal model (less the fillets)
+        total = sum(sum(v) for v in parts.values())
+        assert total == pytest.approx(ring(cg.geom[:,1], cg.r_o + cg.t_w_o), rel=0.01)
+        assert sum(parts["Coolant channels"]) == pytest.approx(np.trapezoid(cg.A_c / np.cos(cg.beta), x) * 1e9, rel=0.05)
+        if separate:
+            assert sum(parts["Ribs"]) + sum(parts["Coolant channels"]) == pytest.approx(ring(cg.r_i, cg.r_o), rel=0.01)
+        xs = [gmsh.model.getValue(0, p, [])[0] for _, p in gmsh.model.getEntities(0)]
+        assert min(xs) == pytest.approx(x[0] * 1e3, abs=1e-3) and max(xs) == pytest.approx(x[-1] * 1e3, abs=1e-3)
     finally:
         gmsh.finalize()
 

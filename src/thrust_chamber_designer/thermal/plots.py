@@ -333,9 +333,10 @@ class Plotting1D():
         return self.finish(fig, 'reynolds', dpi=600)
         
 
-    def section_3d_plot(self, channels=15, opacity=0.35, samples=12, include_plotlyjs='cdn', theme='dark'):
+    def section_3d_plot(self, channels=None, opacity=0.35, samples=12, include_plotlyjs='cdn', theme='dark'):
         # include_plotlyjs: 'cdn' loads plotly.js from the internet, True writes it into the html file, which then also works offline
         # theme: 'dark' as in PyRocket, 'light' or 'aero' to match the desktop app (see plot_style.py)
+        # channels: number of cooling channels shown, by default all channels of the chamber, which closes the ring
         # 3D view of the 2D sections joined along the chamber contour: a slice of the wall with a number of cooling channels and their ribs,
         # coloured by temperature. The wall is transparent so that the cooling channels can be seen through it. Interactive html file, which
         # opens in a web browser (needs an internet connection for plotly.js)
@@ -353,6 +354,7 @@ class Plotting1D():
             return
 
         geom, cg = self.geometry, self.cooling_geom
+        n_sec = np.broadcast_to(np.asarray(cg.n_channels, dtype=int), (len(geom[:,0]),))   # results of older runs have one number
         sections = [i for i in range(len(geom[:,0])) if 'T' + str(i) in data]
         s = np.linspace(0, 1, samples)
 
@@ -391,42 +393,50 @@ class Plotting1D():
             # point in the plane of a section to 3D [mm]: axial coordinate along x, around the chamber axis by angle, radius upwards
             return z * np.ones_like(px), 1e3 * (px * np.cos(angle) + py * np.sin(angle)), 1e3 * (py * np.cos(angle) - px * np.sin(angle))
 
-        # copies of the half section: mirrored about the centre line of the channel and rotated by whole channel pitches. Helical channels
-        # are rotated further by their angular position around the chamber axis
-        ks = np.arange(channels) - (channels - 1) / 2
-        halves = [(k, m) for k in ks for m in (1, -1)]
-
         meshes = {'wall': [], 'channel': []}
         def add(group, X, Y, Z, T, tri):
             meshes[group].append((X, Y, Z, T, tri))
 
-        walls = [boundary(i) for i in sections]
-        z = geom[sections, 0] * 1e3
-        for name in ('gas', 'outer', 'side', 'channel top', 'channel side', 'channel bottom'):
-            group = 'channel' if name.startswith('channel') else 'wall'
-            for k, m in halves:
-                if name == 'side' and k * m != ks.max():
-                    continue                              # rib centre planes between the copies are inside the slice
-                X, Y, Z, T = [], [], [], []
-                for (w, th_p), zi, i in zip(walls, z, sections):
-                    px, py, Tw = w[name]
-                    x3, y3, z3 = place(m * px, py, zi, 2 * k * th_p + cg.twist[i])
-                    X.append(x3); Y.append(y3); Z.append(z3); T.append(Tw)
-                X, Y, Z, T = (np.concatenate(a) for a in (X, Y, Z, T))
-                # two triangles between neighbouring points of neighbouring sections
-                a = np.arange(len(sections) - 1)[:,None] * samples + np.arange(samples - 1)[None,:]
-                a = a.ravel()
-                tri = np.vstack([np.column_stack([a, a + samples, a + samples + 1]), np.column_stack([a, a + samples + 1, a + 1])])
-                add(group, X, Y, Z, T, tri)
+        walls = dict(zip(sections, (boundary(i) for i in sections)))
+        # the sections in runs with the same number of channels, each drawn on its own: where the channels split, the run ends and the
+        # next one starts with the other number of channels
+        runs = np.split(np.array(sections), np.flatnonzero(np.diff(n_sec[sections])) + 1)
+        for run in runs:
+            n_run = int(n_sec[run[0]])
+            shown = n_run if channels is None else min(int(channels), n_run)
+            ring = shown == n_run                         # all channels: the slice closes around the axis and has no cut faces
+            # copies of the half section: mirrored about the centre line of the channel and rotated by whole channel pitches. Helical
+            # channels are rotated further by their angular position around the chamber axis
+            ks = np.arange(shown) - (shown - 1) / 2
+            halves = [(k, m) for k in ks for m in (1, -1)]
+            z = geom[run, 0] * 1e3
+            for name in ('gas', 'outer', 'side', 'channel top', 'channel side', 'channel bottom'):
+                group = 'channel' if name.startswith('channel') else 'wall'
+                for k, m in halves:
+                    if name == 'side' and (ring or k * m != ks.max()):
+                        continue                          # rib centre planes between the copies are inside the slice
+                    X, Y, Z, T = [], [], [], []
+                    for zi, i in zip(z, run):
+                        w, th_p = walls[i]
+                        px, py, Tw = w[name]
+                        x3, y3, z3 = place(m * px, py, zi, 2 * k * th_p + cg.twist[i])
+                        X.append(x3); Y.append(y3); Z.append(z3); T.append(Tw)
+                    X, Y, Z, T = (np.concatenate(a) for a in (X, Y, Z, T))
+                    # two triangles between neighbouring points of neighbouring sections
+                    a = np.arange(len(run) - 1)[:,None] * samples + np.arange(samples - 1)[None,:]
+                    a = a.ravel()
+                    tri = np.vstack([np.column_stack([a, a + samples, a + samples + 1]), np.column_stack([a, a + samples + 1, a + 1])])
+                    add(group, X, Y, Z, T, tri)
 
-        # the first and the last section close the slice
-        for i in (sections[0], sections[-1]):
-            x, y, tri, T = field(i)
-            x, y = section_plane(x, y, i)
-            th_p = np.pi / cg.n_channels
-            for k, m in halves:
-                X, Y, Z = place(m * x, y, geom[i,0] * 1e3, 2 * k * th_p + cg.twist[i])
-                add('wall', X, Y, Z, T, tri)
+            # the first and the last section close the slice
+            for i in sorted({run[0], run[-1]}):
+                x, y, tri, T = field(i)
+                x, y = section_plane(x, y, i)
+                th_p = np.pi / n_run
+                for k, m in halves:
+                    X, Y, Z = place(m * x, y, geom[i,0] * 1e3, 2 * k * th_p + cg.twist[i])
+                    add('wall', X, Y, Z, T, tri)
+        counts = sorted({int(n) if channels is None else min(int(channels), int(n)) for n in n_sec[sections]})
 
         T_all = np.concatenate([part[3] for group in meshes.values() for part in group])
         template, paper, scene, grid, font = plotly_layout(theme)
@@ -440,7 +450,8 @@ class Plotting1D():
                                     flatshading=False, name='cooling channels' if group == 'channel' else 'wall',
                                     hovertemplate='x = %{x:.1f} mm<br>T = %{intensity:.0f} K<extra>%{fullData.name}</extra>'))
 
-        fig.update_layout(title='Wall temperature along the chamber, ' + str(channels) + (' helical' if np.any(cg.beta > 0) else '') + ' cooling channels',
+        fig.update_layout(title='Wall temperature along the chamber, ' + ' to '.join(str(n) for n in (counts[0], counts[-1])[:len(counts)])
+                                + (' helical' if np.any(cg.beta > 0) else '') + ' cooling channels',
                           coloraxis=dict(colorscale=palette(theme)['plotly_scale'], cmin=float(T_all.min()), cmax=float(T_all.max()), colorbar=dict(title='Temperature [K]')),
                           scene=dict(xaxis_title='x coordinate [mm]', yaxis_title='[mm]', zaxis_title='radius [mm]', aspectmode='data',
                                      camera=dict(eye=dict(x=0.55, y=-2.3, z=-1.25), center=dict(x=0, y=0, z=0), projection=dict(type='perspective'))),

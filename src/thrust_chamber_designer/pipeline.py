@@ -186,7 +186,8 @@ def cooling_geometry(nd, design=None, full_length=False):
         tail = [[x[last], y[last]]] if geometry[-1,0] < x[last] - 1e-9 else []
         geometry = np.vstack(head + [geometry] + tail)
     cooling_geom = CoolingGeometry(geometry, chn.height.as_input(), chn.fill_factor.as_input(), chn.inner_wall.as_input(),
-                                   float(chn.outer_wall), int(chn.n), chn.helix_angle.as_input() if chn.helical else 0.0)
+                                   float(chn.outer_wall), chn.count if chn.splits else int(chn.n),
+                                   chn.helix_angle.as_input() if chn.helical else 0.0)
     cooling_geom.channel_geometry()
     return chamber, cooling_geom
 
@@ -199,7 +200,8 @@ def write_step(nd, folder, design=None, separate=True):
     os.makedirs(folder, exist_ok=True)
     _, cooling_geom = cooling_geometry(nd, d, full_length=True)
     path = os.path.join(folder, "Cooling_Jacket.step")
-    notes = create_step(cooling_geom, path, fillet=d.channels.fillet_radius, separate=separate, name=d.name or "Cooling jacket")
+    notes = create_step(cooling_geom, path, fillet=d.channels.fillet_radius, separate=separate, name=d.name or "Cooling jacket",
+                        split_length=d.channels.split_length)
     return path, notes
 
 
@@ -300,4 +302,6 @@ def thermal_warnings(setup, sim):
     if len(small):
         notes.append("Cooling channels smaller than %.2f mm in %d of %d sections (narrowest %.2f mm wide, lowest %.2f mm high)"
                      % (min_size * 1e3, len(small), len(x), width.min() * 1e3, cg.h_c.min() * 1e3))
+    for x_s, a, b in setup.design.channels.uneven_changes():
+        notes.append("The %d channels do not split evenly into %d at x = %.1f mm" % (min(a, b), max(a, b), x_s))
     return notes

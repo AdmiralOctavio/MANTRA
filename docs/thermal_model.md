@@ -109,6 +109,25 @@ contour are narrower or lower than 'min_channel_size' in config.py (1 mm by defa
 sections concerned and the smallest width and height. The width is taken at the bottom of the channel, where it is narrowest, and perpendicular to
 the channel for helical channels.
 
+### Channel splits
+The number of channels can change along the chamber, e.g. fewer channels around the throat, where the circumference is small and the channels
+would otherwise become too narrow to print, and more channels in the chamber and the nozzle, where they are wider. In the desktop app the
+'Channel splits' table on the Cooling tab lists the changes as the axial position x and the number of channels from there on towards the nozzle
+exit; 'Number of channels' is the number at the injector end. In config.py 'n' can be a function of the axial coordinate like 'h_c' and 'psi'.
+Every section is solved with the number of channels at its position. The fill factor 'psi' keeps its meaning, so where the number of channels
+doubles each channel and rib is half as wide: the flow area stays the same, the hydraulic diameter becomes smaller, and the coolant velocity,
+Reynolds number and heat transfer coefficient follow from it. The change takes place between two sections. The flow in the junction itself, where
+a rib starts in the middle of a channel or ends between two, is not modelled: neither its pressure loss nor the new thermal boundary layer on the
+new rib. Each channel should split into a whole number of channels (e.g. 15 into 30, not 20 into 30); a warning is shown otherwise. In
+'sections_3d.html' each run of sections with the same number of channels is drawn on its own.
+
+The STEP model includes the splits, which need a whole number of channels from each channel. The ribs lie on one grid of angles, so the ribs of the
+fewer channels run through the transition and the others start (or end) in the middle of a channel. Over 'Split transition' (5 mm by default,
+shorter where the next split or the end of the chamber is closer) the ribs that run through change their width smoothly, and the new ribs grow from a
+blunt leading edge, 5 % of their width, to their full width, their corner fillets with them, so the channel divides gradually. A channel that
+divides is one body in the model. The transition is centred between the two sections of the thermal model where the number of channels changes;
+the thermal model itself does not include it.
+
 
 ### Helical cooling channels
 Setting 'helical' to True in config.py winds the cooling channels around the chamber axis instead of running them straight along it. 'helix_angle' is the
@@ -167,7 +186,7 @@ Results of the full chamber simulation are saved in the target directory as a cs
 These include the heat transfer coefficients, coolant properties, as well as maximum wall temperature. 
 
 The 2D temperature field of every section is saved in 'section_fields.npz'. From it 'sections_3d.html' shows the sections joined along the chamber
-contour in 3D: a slice of the wall with three cooling channels and their ribs, coloured by temperature. The wall is transparent so the cooling
+contour in 3D: the wall with all cooling channels of the chamber and their ribs, coloured by temperature. The wall is transparent so the cooling
 channels can be seen through it. The file opens in a web browser, where the view can be rotated and zoomed and the temperature is shown under the
 cursor (it needs plotly in Python, and an internet connection to load plotly.js). The number of channels and the transparency can be changed with
 the arguments of 'section_3d_plot' in 'PlottingFunctions.py'.

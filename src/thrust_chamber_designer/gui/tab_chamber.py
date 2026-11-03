@@ -21,7 +21,7 @@ class ChamberTab(QWidget):
         box = QGroupBox("Combustion chamber")
         form = QFormLayout(box)
         ch = lambda d: d.chamber
-        form.addRow("Contraction ratio", b.number(ch, "contraction_ratio", decimals=2, minimum=1.5, maximum=100, step=0.5))
+        form.addRow("Contraction ratio", b.number(ch, "contraction_ratio", decimals=4, minimum=1.5, maximum=100, step=0.5))
         form.addRow("Convergent slope", b.number(ch, "slope", decimals=1, minimum=5, maximum=80, step=1, suffix="deg"))
         form.addRow("Throat radius R1", b.number(ch, "R1", decimals=2, minimum=0.1, maximum=1000, step=1, suffix="mm",
                                                  tooltip="Radius of the wall arc upstream of the throat"))

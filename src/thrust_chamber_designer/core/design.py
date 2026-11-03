@@ -102,7 +102,10 @@ class Coolant:
 
 @dataclass
 class Channels:
-    n: int = 15                                                        # number of cooling channels
+    n: int = 15                                                        # number of cooling channels, upstream of the first change in splits
+    # changes of the number of channels along the chamber: (x [mm], number of channels from x on towards the nozzle exit), e.g. fewer
+    # channels around the throat where they would be too narrow. Each channel should split into a whole number of channels
+    splits: List[Tuple[float, int]] = field(default_factory=list)
     height: Profile = field(default_factory=lambda: Profile(1e-3))     # radial height h_c [m]
     fill_factor: Profile = field(default_factory=lambda: Profile(0.35))    # psi, fraction of the circumference covered by channels
     inner_wall: Profile = field(default_factory=lambda: Profile(0.9e-3))   # inner wall thickness t_w_i [m]
@@ -111,6 +114,30 @@ class Channels:
     helix_angle: Profile = field(default_factory=lambda: Profile(30.0))    # angle to the chamber axis [deg]
     min_channel_size: float = 1e-3                                     # smallest channel that can be depowdered [m]
     fillet_radius: float = 0.2e-3                                      # corner radius of the channels in the STEP model [m], not in the thermal model
+    split_length: float = 5e-3                                         # length of the smooth transition of a split in the STEP model [m]
+
+    def count(self, x_m):
+        # number of channels at the axial coordinates x_m [m]: n upstream of the first change, the number of the last change at or
+        # upstream of x further on
+        x_m = np.asarray(x_m, dtype=float)
+        if not self.splits:
+            return np.full(x_m.shape, int(self.n))
+        xs, ns = np.array(sorted(self.splits), dtype=float).T
+        counts = np.concatenate(([int(self.n)], ns.astype(int)))
+        return counts[np.searchsorted(xs, x_m * 1e3, side="right")]
+
+    def changes(self):
+        # (x [mm], channels upstream, channels downstream) of every change of the number of channels
+        out, n = [], int(self.n)
+        for x, m in sorted(self.splits):
+            if int(m) != n:
+                out.append((float(x), n, int(m)))
+                n = int(m)
+        return out
+
+    def uneven_changes(self):
+        # changes at which the channels do not split into (or merge from) a whole number of channels each
+        return [(x, a, b) for x, a, b in self.changes() if max(a, b) % min(a, b) != 0]
 
 
 @dataclass
@@ -191,7 +218,7 @@ def _from_dict(cls, data):
             kwargs[key] = _from_dict(type(default), value)
         elif key == "ports":
             kwargs[key] = [_from_dict(FilmPort, port) for port in value]
-        elif key in ("points", "schedule"):
+        elif key in ("points", "schedule", "splits"):
             kwargs[key] = [tuple(point) for point in value]
         else:
             kwargs[key] = value
