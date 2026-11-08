@@ -335,7 +335,7 @@ class Plotting1D():
 
     def section_3d_plot(self, channels=None, opacity=0.35, samples=12, include_plotlyjs='cdn', theme='dark'):
         # include_plotlyjs: 'cdn' loads plotly.js from the internet, True writes it into the html file, which then also works offline
-        # theme: 'dark' as in PyRocket, 'light' or 'aero' to match the desktop app (see plot_style.py)
+        # theme: 'dark' as in PyRocket, 'light', 'aero' or 'lcars' to match the desktop app (see plot_style.py)
         # channels: number of cooling channels shown, by default all channels of the chamber, which closes the ring
         # 3D view of the 2D sections joined along the chamber contour: a slice of the wall with a number of cooling channels and their ribs,
         # coloured by temperature. The wall is transparent so that the cooling channels can be seen through it. Interactive html file, which

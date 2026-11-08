@@ -129,6 +129,9 @@ channels beside a new rib keep the width they have after the split all through t
 The transition starts at the first section of the thermal model with the more channels (or ends at the last one, where the channels merge) and
 lies on that side, so no channel of the STEP model is narrower than the channels the thermal model checks against 'min_channel_size'; a note
 says so if one is narrower anyway. A channel that divides is one body in the model. The thermal model itself does not include the transition.
+Where the fill factor changes at the split as well (two points at the same x, e.g. doubling with the number of channels so that the channels keep
+their width), the ribs that run through change their width smoothly over the same length before the transition, on the side with the fewer
+channels, which are wider there than in the thermal model; a note gives the length.
 
 The ribs, channels and walls are lofted in pieces, one for every transition and one for each stretch between them: a single loft through the
 closely spaced sections of a transition and the sections of the thermal model swings far out of the chamber wall. The pieces are fused into

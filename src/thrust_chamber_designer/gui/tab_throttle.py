@@ -178,6 +178,8 @@ class ThrottleTab(QWidget):
         try:
             value = parse(field.text())
         except ValueError:
+            from . import sounds
+            sounds.play("invalid")
             self.window.bindings.refresh()
             self.window.statusBar().showMessage("Could not read the %s, the values are unchanged" % name, 8000)
             return None

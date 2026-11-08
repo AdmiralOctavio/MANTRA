@@ -5,8 +5,10 @@ from matplotlib import cm
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QFormLayout, QGroupBox, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
+from .. import plot_style
 from ..core import chemistry
 from ..core import propellants as props
+from . import themes
 from .widgets import PlotCanvas
 from .worker import run_in_thread
 
@@ -121,8 +123,10 @@ class EngineTab(QWidget):
         i_peak = int(np.nanargmax(isp))
         score = np.clip(1 - (isp[i_peak] - isp) / (0.2 * isp[i_peak]), 0, 1)
         base = np.nanmin(isp) - 0.05 * (isp[i_peak] - np.nanmin(isp))
-        ink = "#5a5a5a"
-        ax.bar(of[ok], isp[ok] - base, bottom=base, width=of[1] - of[0], color=cm.YlGnBu_r(score[ok]), linewidth=0, alpha=0.7)
+        look = plot_style.palette(themes.plot_theme())
+        ink = look.get("ink", "#5a5a5a")
+        cmap = look.get("score_cmap", cm.YlGnBu_r)
+        ax.bar(of[ok], isp[ok] - base, bottom=base, width=of[1] - of[0], color=cmap(score[ok]), linewidth=0, alpha=0.7)
         ax.plot(of, isp, color=ink, linewidth=0.8)
         ax.plot(of[i_peak], isp[i_peak], "v", color="#1a9850", markersize=6, markeredgecolor=ink, markeredgewidth=0.4)
         in_range = of[0] <= of_val <= of[-1]

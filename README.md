@@ -74,13 +74,21 @@ The tabs follow the order of the work:
    schedules read off it are solved on the mesh of the Thermal tab and listed with their limits and notes. *Cancel* stops it at any time,
    and *Open results* shows an earlier run again. See *Throttling* in [docs/thermal_model.md](docs/thermal_model.md).
 
-Designs are saved as JSON files (File menu). *View* switches between a light, a dark and an Aero theme (Vista / 7, Frutiger Aero);
-the plots and the 3D view follow the theme. In the Aero theme on Windows 11 the title bar and window border take the sky blue of
-the theme as well.
+Designs are saved as JSON files (File menu). *View* switches between a light, a dark, an Aero theme (Vista / 7, Frutiger Aero) and
+an LCARS theme (the consoles of a 24th century starship: black, with elbows and bars of orange, peach and lilac around the window, a
+column of buttons for the tabs, pill buttons and condensed capitals; the status shows in the bottom elbow). The plots and the 3D view
+follow the theme. In the Aero and LCARS themes on Windows 11 the title bar and window border take the colours of the theme as well.
+The LCARS theme takes the Antonio font when it is installed (Google Fonts), else Bahnschrift, which comes with Windows 10 and 11.
+The LCARS theme also chirps when a button, tab, field or menu is used, hails when the nozzle is solved or a thermal run or throttle
+analysis is done, and sounds an alarm with a warning or error box (the console warning for a question such as unsaved changes, the
+damage alarm for a failed run, the red alert for a critical error) in place of the sounds of Windows; View > LCARS sounds turns
+them off.
 
 ![Thermal run, Aero theme](docs/images/thermal_aero.png)
 
 ![3D view of the sections, Aero theme](docs/images/sections_3d_aero.png)
+
+![Chamber and nozzle, LCARS theme](docs/images/chamber_lcars.png)
 
 ### Command line
 

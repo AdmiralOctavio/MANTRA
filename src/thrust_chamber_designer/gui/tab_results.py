@@ -35,6 +35,7 @@ class ResultsTab(QWidget):
         layout.addLayout(top)
 
         self.tabs = QTabWidget()
+        self.tabs.tabBar().setProperty("sound", "view")     # the LCARS theme chirps differently here than for the main tabs
         layout.addWidget(self.tabs, 1)
 
         summary = QSplitter(Qt.Orientation.Vertical)

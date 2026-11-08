@@ -1,11 +1,12 @@
 """
-Looks of the app: Qt's Fusion style with a light or a dark palette, and 'Aero', a stylesheet after Windows Vista / 7 and the
-Frutiger Aero look: sky gradient, glassy panels, glossy buttons and aqua highlights.
+Looks of the app: Qt's Fusion style with a light or a dark palette, 'Aero', a stylesheet after Windows Vista / 7 and the
+Frutiger Aero look: sky gradient, glassy panels, glossy buttons and aqua highlights, and 'LCARS', the consoles of a 24th century
+starship: black, with elbows, pill buttons and blocks of orange, peach, lilac and lavender, and condensed capitals (see lcars.py).
 """
 
 import os
 
-from PySide6.QtGui import QColor, QPalette
+from PySide6.QtGui import QColor, QFont, QPalette
 from PySide6.QtWidgets import QStyleFactory
 
 DEFAULT = "Light"
@@ -31,6 +32,147 @@ DARK = {R.Window: "#1f232b", R.WindowText: "#d8dde8", R.Base: "#161a20", R.Alter
 AERO_PALETTE = {R.Window: "#dcecf8", R.WindowText: "#0b2a45", R.Base: "#ffffff", R.AlternateBase: "#eef7fd", R.Text: "#0b2a45",
                 R.Button: "#e6f3fc", R.ButtonText: "#0b2a45", R.Highlight: "#3d9be9", R.HighlightedText: "#ffffff",
                 R.ToolTipBase: "#f7fcff", R.ToolTipText: "#0b2a45", R.PlaceholderText: "#7d97ad"}
+
+LCARS_PALETTE = {R.Window: "#000000", R.WindowText: "#ffcc99", R.Base: "#000000", R.AlternateBase: "#0c0c16", R.Text: "#ffcc99",
+                 R.Button: "#ff9966", R.ButtonText: "#000000", R.Highlight: "#ff9900", R.HighlightedText: "#000000",
+                 R.ToolTipBase: "#000000", R.ToolTipText: "#ffcc99", R.PlaceholderText: "#8a6a55", R.BrightText: "#ff5555",
+                 R.Link: "#9999ff", R.Light: "#9999cc", R.Midlight: "#7a7aa6", R.Mid: "#444466", R.Dark: "#222233",
+                 R.Shadow: "#000000"}
+
+LCARS_QSS = """
+QMainWindow, QDialog { background: #000000; }
+QMenuBar { background: #000000; padding: 6px 8px 0 8px; spacing: 5px; }
+QMenuBar::item { background: #ff9966; color: #000000; padding: 3px 16px 3px 20px; border-radius: 9px; }
+QMenuBar::item:selected { background: #ffcc99; }
+QMenuBar::item:pressed { background: #ff9900; }
+QMenu { background: #000000; border: 2px solid #ff9900; padding: 6px 4px; }
+QMenu::item { color: #ff9966; padding: 5px 26px 5px 26px; border-radius: 10px; margin: 1px 2px; }
+QMenu::item:selected { background: #ff9900; color: #000000; }
+QMenu::item:disabled { color: #664433; }
+QMenu::separator { height: 3px; background: #cc99cc; margin: 5px 8px; }
+QMenu::indicator { width: 10px; height: 10px; left: 9px; border-radius: 5px; }
+QMenu::indicator:checked { background: #cc99cc; }
+QStatusBar { background: #000000; color: #ff9966; }
+QStatusBar::item { border: none; }
+
+QTabWidget::pane { border: none; border-top: 4px solid #9999cc; top: -1px; }
+QTabBar { qproperty-drawBase: 0; }
+QTabBar::tab { background: #9999cc; color: #000000; padding: 4px 18px 4px 22px; margin: 0 4px 5px 0; min-width: 50px; }
+QTabBar::tab:first { border-top-left-radius: 12px; border-bottom-left-radius: 12px; }
+QTabBar::tab:last { border-top-right-radius: 12px; border-bottom-right-radius: 12px; }
+QTabBar::tab:only-one { border-radius: 12px; }
+QTabBar::tab:selected { background: #ff9900; }
+QTabBar::tab:hover:!selected { background: #ccccff; }
+
+QGroupBox {
+    /* a small elbow: a thick bar on the left bent into a thin one along the top, the title breaks the top bar */
+    background: #000000; border: none; border-left: 10px solid #cc99cc; border-top: 4px solid #cc99cc;
+    border-top-left-radius: 18px; margin-top: 12px; padding: 16px 4px 6px 6px;
+}
+QGroupBox::title {
+    subcontrol-origin: margin; subcontrol-position: top left; left: 30px; top: 3px; padding: 0 8px; color: #cc99cc;
+    background: #000000; font-weight: bold;
+}
+QGroupBox::indicator { width: 18px; height: 11px; border: 2px solid #cc99cc; border-radius: 7px; background: #000000; }
+QGroupBox::indicator:checked { background: #ff9900; border-color: #ff9900; }
+
+QPushButton {
+    background: #ff9966; color: #000000; border: none; border-radius: 11px; padding: 4px 12px 4px 18px; min-height: 14px;
+    text-align: right;
+}
+QPushButton:hover { background: #ffcc99; }
+QPushButton:pressed { background: #ffffff; }
+QPushButton:checked { background: #ff9900; }
+QPushButton:disabled { background: #4d3326; color: #000000; }
+QPushButton#primary { background: #ff9900; font-weight: bold; padding: 5px 12px 5px 20px; }
+QPushButton#primary:hover { background: #ffbb44; }
+QPushButton#primary:pressed { background: #ffffff; }
+QPushButton#primary:disabled { background: #5c3d00; }
+QToolButton { background: transparent; border: none; border-radius: 9px; padding: 3px; color: #ffcc99; }
+QToolButton:hover { background: #333355; }
+QToolButton:checked, QToolButton:pressed { background: #9999cc; }
+QToolBar { background: #000000; border: none; spacing: 3px; }
+
+QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
+    /* a field with a peach cap on the left, the steppers or the drop down are the round cap on the right */
+    background: #140c06; color: #ffcc99; border: none; border-left: 6px solid #ff9966; border-radius: 0;
+    border-top-right-radius: 10px; border-bottom-right-radius: 10px; padding: 3px 6px; min-height: 16px;
+    selection-background-color: #ff9900; selection-color: #000000;
+}
+QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus { border-left-color: #ff9900; background: #2a1808; }
+QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled, QComboBox:disabled { color: #6b5545; border-left-color: #4d3326;
+    background: #0a0604; }
+QLineEdit { border-radius: 0; }
+QAbstractSpinBox QLineEdit, QComboBox QLineEdit { border: none; background: transparent; padding: 0; }
+QAbstractSpinBox { padding-right: 22px; }
+QAbstractSpinBox::up-button, QAbstractSpinBox::down-button { subcontrol-origin: border; width: 20px; background: #ff9966; border: none; }
+QAbstractSpinBox::up-button { subcontrol-position: top right; border-top-right-radius: 10px; border-bottom: 1px solid #000000; }
+QAbstractSpinBox::down-button { subcontrol-position: bottom right; border-bottom-right-radius: 10px; }
+QAbstractSpinBox::up-button:hover, QAbstractSpinBox::down-button:hover { background: #ffcc99; }
+QAbstractSpinBox::up-button:pressed, QAbstractSpinBox::down-button:pressed { background: #ffffff; }
+QAbstractSpinBox::up-button:disabled, QAbstractSpinBox::down-button:disabled { background: #4d3326; }
+QAbstractSpinBox::up-arrow { image: url(ICONS/lcars_arrow_up.svg); width: 7px; height: 7px; }
+QAbstractSpinBox::down-arrow { image: url(ICONS/lcars_arrow_down.svg); width: 7px; height: 7px; }
+QComboBox { padding-right: 28px; }
+QComboBox::drop-down { subcontrol-origin: border; subcontrol-position: top right; width: 24px; border: none; background: #ff9966;
+    border-top-right-radius: 10px; border-bottom-right-radius: 10px; }
+QComboBox::drop-down:hover { background: #ffcc99; }
+QComboBox::down-arrow { image: url(ICONS/lcars_arrow_down.svg); width: 8px; height: 8px; }
+QComboBox QAbstractItemView { background: #000000; color: #ffcc99; border: 2px solid #ff9900; outline: none;
+    selection-background-color: #ff9900; selection-color: #000000; }
+
+QPlainTextEdit, QTextEdit, QTableView, QTableWidget, QListView, QListWidget {
+    background: #000000; color: #ffcc99; border: none; border-left: 6px solid #9999cc;
+    selection-background-color: #ff9900; selection-color: #000000; gridline-color: #2a2a40;
+}
+QTableView, QListView { alternate-background-color: #0c0c16; }
+QTableView::item:selected, QListView::item:selected { background: #ff9900; color: #000000; }
+QTableView::item:hover, QListView::item:hover { background: #1c1c33; }
+QHeaderView { background: #000000; border: none; }
+QHeaderView::section { background: #cc99cc; color: #000000; border: none; border-right: 3px solid #000000;
+    border-bottom: 3px solid #000000; padding: 3px 8px; }
+QHeaderView::section:last { border-right: none; border-top-right-radius: 10px; }
+QTableCornerButton::section { background: #cc99cc; border: none; }
+
+QProgressBar { background: #000000; border: 2px solid #9999cc; border-radius: 0; color: #ffffff; font-weight: bold;
+    text-align: center; min-height: 18px; }
+QProgressBar::chunk { background: #ff9900; width: 12px; margin: 2px 1px; }
+
+QScrollArea, QScrollArea > QWidget > QWidget { background: #000000; }
+QScrollBar:vertical { background: #0c0c16; width: 12px; margin: 0; border: none; }
+QScrollBar:horizontal { background: #0c0c16; height: 12px; margin: 0; border: none; }
+QScrollBar::handle:vertical { background: #9999cc; min-height: 30px; border-radius: 5px; margin: 1px; }
+QScrollBar::handle:horizontal { background: #9999cc; min-width: 30px; border-radius: 5px; margin: 1px; }
+QScrollBar::handle:hover { background: #ff9966; }
+QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; border: none; background: none; }
+QScrollBar::add-page, QScrollBar::sub-page { background: none; }
+QSplitter::handle { background: #000000; }
+QSplitter::handle:vertical { height: 6px; border-top: 2px solid #000000; border-bottom: 2px solid #000000; background: #333355; }
+QSplitter::handle:horizontal { width: 6px; border-left: 2px solid #000000; border-right: 2px solid #000000; background: #333355; }
+
+QSlider::groove:horizontal { height: 8px; border-radius: 4px; background: #222233; }
+QSlider::sub-page:horizontal { background: #9999cc; border-radius: 4px; }
+QSlider::handle:horizontal { width: 14px; margin: -7px 0; border-radius: 4px; background: #ff9900; }
+QSlider::handle:horizontal:hover { background: #ffcc99; }
+
+QCheckBox, QRadioButton, QLabel { background: transparent; }
+QCheckBox { spacing: 8px; }
+QCheckBox::indicator { width: 20px; height: 11px; border: 2px solid #9999cc; border-radius: 7px; background: #000000; }
+QCheckBox::indicator:hover { border-color: #ffcc99; }
+QCheckBox::indicator:checked { background: #ff9900; border-color: #ff9900; }
+QCheckBox::indicator:disabled { border-color: #333355; background: #000000; }
+QCheckBox::indicator:checked:disabled { background: #5c3d00; border-color: #5c3d00; }
+QRadioButton::indicator { width: 11px; height: 11px; border: 2px solid #9999cc; border-radius: 7px; background: #000000; }
+QRadioButton::indicator:hover { border-color: #ffcc99; }
+QRadioButton::indicator:checked { background: #ff9900; border-color: #ff9900; }
+QRadioButton::indicator:disabled { border-color: #333355; }
+
+QToolTip { background: #000000; color: #ffcc99; border: 2px solid #ff9900; padding: 4px; }
+QLabel#warning { color: #ff5555; }
+"""
+
+# widgets whose text is set in capitals in the LCARS theme. Not the labels and fields: their units (mm, MPa, mN) need their case
+LCARS_CAPITALS = ("QPushButton", "QTabBar", "QHeaderView", "QMenuBar", "QMenu", "QToolButton")
 
 COMMON_QSS = """
 QPushButton#primary { font-weight: bold; padding: 6px 14px; }
@@ -159,11 +301,13 @@ QComboBox::down-arrow { image: url(ICONS/arrow_down.svg); width: 8px; height: 8p
 QToolTip { background: #f7fcff; color: #0b2a45; border: 1px solid #8fb7da; border-radius: 4px; padding: 4px; }
 """
 
-THEMES = ("Light", "Dark", "Aero")
+THEMES = ("Light", "Dark", "Aero", "LCARS")
 
 
-PLOT_THEMES = {"Light": "light", "Dark": "dark", "Aero": "aero"}
+PLOT_THEMES = {"Light": "light", "Dark": "dark", "Aero": "aero", "LCARS": "lcars"}
 _current = DEFAULT
+_base_font = None           # font of the app before a theme changed it
+_capitals = None            # font of the widgets in capitals in the LCARS theme, None in the other themes
 
 
 def plot_theme():
@@ -171,27 +315,66 @@ def plot_theme():
     return PLOT_THEMES.get(_current, "light")
 
 
+def _fonts(app, lcars):
+    """The LCARS theme sets the app in a condensed font, with the buttons, tabs, headers and menus in capitals; the other themes in
+    the font of the system"""
+    global _base_font, _capitals
+    if _base_font is None:
+        _base_font = QFont(app.font())
+    _capitals = None
+    # setFont without a class name also drops the fonts of the classes
+    if not lcars:
+        app.setFont(_base_font)
+        return
+    from . import lcars as lcars_module
+    font = QFont(_base_font)
+    family = lcars_module.text_family()
+    if family:
+        font.setFamily(family)
+    app.setFont(font)
+    capitals = QFont(font)
+    capitals.setCapitalization(QFont.Capitalization.AllUppercase)
+    for name in LCARS_CAPITALS:
+        app.setFont(capitals, name)
+    _capitals = capitals
+
+
+def capitals_font():
+    """Font of the buttons, tabs and menus in the LCARS theme, None in the other themes. The main window sets it on its tab bars
+    and menus directly: they do not take the fonts of their classes."""
+    return _capitals
+
+
 def apply(app, name, window=None):
     global _current
     _current = name if name in THEMES else DEFAULT
+    name = _current
     app.setStyle(QStyleFactory.create("Fusion"))
+    _fonts(app, name == "LCARS")
+    icons = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons").replace(os.sep, "/")
     if name == "Dark":
         app.setPalette(_palette(DARK))
         app.setStyleSheet(COMMON_QSS + "QLabel#warning { color: #f0a35e; }")
     elif name == "Aero":
         app.setPalette(_palette(AERO_PALETTE))
-        icons = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons").replace(os.sep, "/")
         app.setStyleSheet(AERO_QSS.replace("ICONS", icons) + COMMON_QSS)
+    elif name == "LCARS":
+        app.setPalette(_palette(LCARS_PALETTE))
+        app.setStyleSheet(COMMON_QSS + LCARS_QSS.replace("ICONS", icons))
     else:
         app.setPalette(_palette(LIGHT))
         app.setStyleSheet(COMMON_QSS)
+    from . import sounds
+    sounds.player.set_theme(app, name == "LCARS")
     if window is not None:
+        if hasattr(window, "set_lcars"):
+            window.set_lcars(name == "LCARS")
         frame_colors(window, name)
 
 
 def frame_colors(window, name):
-    """Windows 11: title bar and window border in the colours of the Aero theme (sky blue glass), the system colours for the other
-    themes. Does nothing on other systems and older Windows."""
+    """Windows 11: title bar and window border in the colours of the Aero theme (sky blue glass) or the LCARS theme (black with an
+    orange border), the system colours for the other themes. Does nothing on other systems and older Windows."""
     import sys
     if sys.platform != "win32":
         return
@@ -207,10 +390,10 @@ def frame_colors(window, name):
             return ctypes.c_uint(r | g << 8 | b << 16)
 
         default = ctypes.c_uint(0xFFFFFFFF)                 # DWMWA_COLOR_DEFAULT
-        aero = name == "Aero"
+        colors = {"Aero": ("#6aaee0", "#d4eafa", "#0b2a45"), "LCARS": ("#ff9900", "#000000", "#ff9900")}.get(name)
         # DWMWA_BORDER_COLOR = 34, DWMWA_CAPTION_COLOR = 35, DWMWA_TEXT_COLOR = 36
-        for attribute, color in ((34, "#6aaee0"), (35, "#d4eafa"), (36, "#0b2a45")):
-            value = colorref(color) if aero else default
+        for i, attribute in enumerate((34, 35, 36)):
+            value = colorref(colors[i]) if colors else default
             set_attribute(hwnd, attribute, ctypes.byref(value), ctypes.sizeof(value))
     except Exception:
         pass

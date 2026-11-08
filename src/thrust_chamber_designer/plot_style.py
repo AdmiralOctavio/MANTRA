@@ -1,6 +1,7 @@
 """
 Looks of the plots, to match the theme of the app: 'light' (matplotlib as it is), 'dark' (the palette of the nozzle solver) and 'aero'
-(white to pale sky blue plot areas, soft blue frames and grid, glossy blue / green / coral lines, after Windows Vista / 7).
+(white to pale sky blue plot areas, soft blue frames and grid, glossy blue / green / coral lines, after Windows Vista / 7) and 'lcars'
+(black screens, lavender frames, peach lettering and orange / periwinkle lines, after the consoles of a 24th century starship).
 
 style_figure() restyles a finished figure, so the plots of PyRocket keep their code: the basic colours they use ('b', 'r', 'g', 'k')
 are swapped for the colours of the theme.
@@ -9,11 +10,14 @@ are swapped for the colours of the theme.
 import numpy as np
 from matplotlib.colors import LinearSegmentedColormap, to_rgba
 
-THEMES = ("light", "dark", "aero")
+THEMES = ("light", "dark", "aero", "lcars")
 
 # temperature colours of the aero theme: deep blue through aqua and green to amber and red, without a white band in the middle that
 # would look like the empty cooling channel
 AERO_HEAT = ["#1d3f8f", "#1f7fc8", "#35b6c6", "#6cc98a", "#d9e36a", "#f5b04a", "#e4573c", "#b3203a"]
+
+# temperature colours of the lcars theme: from deep space blue through lavender and lilac to the orange and gold of the consoles
+LCARS_HEAT = ["#1b1b4d", "#3d3d99", "#7a6fcc", "#cc99cc", "#ff9966", "#ff9900", "#ffcc66", "#fff2cc"]
 
 PALETTES = {
     "dark": {
@@ -29,6 +33,18 @@ PALETTES = {
         "section_cmap": LinearSegmentedColormap.from_list("aero_heat", AERO_HEAT),
         "plotly_scale": [[i / (len(AERO_HEAT) - 1), c] for i, c in enumerate(AERO_HEAT)],
     },
+    "lcars": {
+        # black screens with lavender frames and peach lettering; the default colours of matplotlib (C0 to C3) are swapped as well
+        "figure": "#000000", "axes": "#000000", "text": "#ff9966", "frame": "#9999cc", "grid": "#26263d", "legend": "#000000",
+        "colors": {"b": "#9999ff", "r": "#ff5555", "g": "#66cc99", "k": "#ffcc99", "orange": "#ff9900",
+                   "C0": "#9999ff", "C1": "#ff9900", "C2": "#66cc99", "C3": "#ff5555"},
+        "fonts": ("Antonio", "Bahnschrift"),
+        # colours of the bars of the Isp chart on the Engine tab, from far off the peak to the peak, and of its line
+        "score_cmap": LinearSegmentedColormap.from_list("lcars_score", ["#26265c", "#5c5cad", "#9999cc", "#cc99cc", "#ff9966", "#ff9900"]),
+        "ink": "#ffcc99",
+        "section_cmap": LinearSegmentedColormap.from_list("lcars_heat", LCARS_HEAT),
+        "plotly_scale": [[i / (len(LCARS_HEAT) - 1), c] for i, c in enumerate(LCARS_HEAT)],
+    },
     "light": {"section_cmap": "magma", "plotly_scale": "Magma"},
 }
 
@@ -36,6 +52,7 @@ PALETTES = {
 NOZZLE_LINES = {
     "dark": ("#7ec8e3", "#5a7faa", "#e05c5c", "#8878cc", "#4aadad"),
     "aero": ("#0f6cbd", "#7aa7cc", "#ef7b5a", "#8f7fd6", "#2fb3a1"),
+    "lcars": ("#ff9900", "#9999cc", "#cc6666", "#cc99cc", "#99ccff"),
     "light": ("#1f4e79", "#7f7f7f", "#d62728", "#9467bd", "#17becf"),
 }
 
@@ -49,6 +66,18 @@ def _same(c1, c2):
         return np.allclose(to_rgba(c1), to_rgba(c2))
     except ValueError:
         return False
+
+
+_font_cache = {}
+
+
+def _font(names):
+    """First of the fonts installed for matplotlib, None if none is (matplotlib would warn on every text otherwise)"""
+    if names not in _font_cache:
+        from matplotlib import font_manager
+        installed = {f.name for f in font_manager.fontManager.ttflist}
+        _font_cache[names] = next((name for name in names if name in installed), None)
+    return _font_cache[names]
 
 
 def _recolor(color, colors):
@@ -115,6 +144,23 @@ def style_figure(fig, theme):
                         handle.set_color(new)
     for text in fig.texts:
         text.set_color(p["text"])
+    family = _font(p["fonts"]) if "fonts" in p else None
+    if family is not None:
+        from matplotlib.text import Text
+        # DejaVu Sans for the glyphs the font lacks, e.g. the minus sign. Mathtext ($10^{-3}$ on log axes) takes no fallback, so it
+        # keeps the font of matplotlib
+        families = [family, "DejaVu Sans"]
+        for text in fig.findobj(Text):
+            if "$" not in text.get_text():
+                text.set_fontfamily(families)
+        for ax in fig.axes:
+            for axis in ("x", "y"):
+                if getattr(ax, "get_%sscale" % axis)() != "linear":
+                    continue
+                try:
+                    ax.tick_params(axis=axis, labelfontfamily=families)    # also the ticks made later when zooming (matplotlib 3.8)
+                except (TypeError, ValueError):
+                    pass
     return fig
 
 
@@ -124,4 +170,6 @@ def plotly_layout(theme):
         return "plotly_white", "#f2f9ff", "#f2f9ff", "#c5def0", "#123a5e"
     if theme == "light":
         return "plotly_white", "#ffffff", "#ffffff", "#dddddd", "#222222"
+    if theme == "lcars":
+        return "plotly_dark", "#000000", "#000000", "#33334d", "#ff9966"
     return "plotly_dark", None, None, None, None

@@ -9,6 +9,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 @pytest.fixture(scope="module")
 def app():
     from PySide6.QtWidgets import QApplication
+
+    from thrust_chamber_designer.gui import sounds
+    sounds.player._start = lambda name: None      # the tests choose the sounds of the LCARS theme without playing them
     return QApplication.instance() or QApplication([])
 
 
@@ -59,6 +62,96 @@ def test_window_solves_the_nozzle(app, tmp_path):
     assert window.save()
     from thrust_chamber_designer.core.design import Design
     assert Design.load(path).chamber.lstar == pytest.approx(1.2)
+    window.modified = False
+    window.close()
+
+
+def test_lcars_theme_puts_the_chrome_on_and_takes_it_off(app):
+    from matplotlib.figure import Figure
+
+    from thrust_chamber_designer import plot_style
+    from thrust_chamber_designer.gui import themes
+    from thrust_chamber_designer.gui.main_window import MainWindow
+
+    window = MainWindow(app)
+    themes.apply(app, "LCARS", window)
+    assert themes.plot_theme() == "lcars"
+    # the column of buttons stands in for the tab bar, the bottom elbow for the status bar
+    assert window.tabs.tabBar().isHidden() and window.statusBar().isHidden()
+    assert not window.frame.column.isHidden()
+    window.frame.buttons.button(2).click()
+    assert window.tabs.currentWidget() is window.cooling_tab
+    window.tabs.setCurrentIndex(4)
+    assert window.frame.buttons.button(4).isChecked()
+    window.statusBar().showMessage("Engage")
+    assert window.frame.bottom.text == "Engage"
+    assert window.chamber_tab.tables.tabText(0) == "PERFORMANCE AND GEOMETRY"
+    assert themes.capitals_font() is not None
+
+    # plots on black, and log axes with negative exponents keep a font that has the minus sign
+    fig = Figure()
+    ax = fig.add_subplot()
+    ax.semilogy([1, 2, 3], [1e-3, 1e-2, 1e-1], "b")
+    plot_style.style_figure(fig, "lcars")
+    fig.canvas.draw()
+    assert ax.get_lines()[0].get_color() == plot_style.palette("lcars")["colors"]["b"]
+
+    # sounds: a chirp for each kind of button and field, an alarm for each kind of message box, nothing when turned off
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QMessageBox
+
+    from thrust_chamber_designer.gui import sounds
+    window.set_sounds(True)
+
+    def heard(do):
+        sounds.player.last = None
+        sounds.player._played = (None, 0.0)
+        do()
+        return sounds.player.last
+
+    def click(widget):
+        return lambda: QTest.mouseClick(widget, Qt.MouseButton.LeftButton, pos=QPoint(5, 5))
+
+    from PySide6.QtWidgets import QPushButton
+    plain, engage = QPushButton("Plot", window), QPushButton("Engage", window)
+    engage.setObjectName("primary")
+    assert heard(click(window.frame.buttons.button(1))) == "tab"
+    assert heard(click(plain)) == "button"
+    assert heard(click(engage)) == "primary"
+    assert heard(click(window.chamber_tab.show_characteristics)) == "toggle"
+    assert heard(click(window.chamber_tab.lstar)) == "open"
+    assert heard(lambda: QTest.keyClick(window.chamber_tab.lstar, Qt.Key.Key_Return)) == "enter"
+    for icon, kind in ((QMessageBox.Icon.Question, "question"), (QMessageBox.Icon.Warning, "warning"),
+                       (QMessageBox.Icon.Critical, "critical")):
+        box = QMessageBox(icon, "Unsaved changes", "Save the changes?", parent=window)
+        assert heard(box.show) == kind
+        # the same picture, but not the standard icon, for which Windows would play its own sound as well
+        assert box.icon() == QMessageBox.Icon.NoIcon and not box.iconPixmap().isNull()
+        box.close()
+    bar = window.results_tab.tabs.tabBar()
+    assert heard(lambda: QTest.mouseClick(bar, Qt.MouseButton.LeftButton, pos=bar.tabRect(1).center())) == "view"
+    # the release of the click that opens a drop-down lands on its list: no second sound for it
+    from PySide6.QtWidgets import QComboBox
+    combo = QComboBox(window)
+    combo.addItems(["Copper", "Inconel"])
+    assert heard(lambda: QTest.mousePress(combo, Qt.MouseButton.LeftButton, pos=QPoint(5, 5))) == "open"
+    viewport = combo.view().viewport()
+    assert heard(lambda: QTest.mouseRelease(viewport, Qt.MouseButton.LeftButton, pos=QPoint(5, 5))) is None
+    assert heard(lambda: QTest.mouseClick(viewport, Qt.MouseButton.LeftButton, pos=QPoint(5, 5))) == "enter"
+    combo.hidePopup()
+    window.throttle_tab.levels.setText("100, half")
+    assert heard(window.throttle_tab.levels.editingFinished.emit) == "invalid"
+    window.set_sounds(False)
+    assert heard(click(engage)) is None
+    window.set_sounds(True)
+
+    themes.apply(app, "Light", window)
+    assert heard(click(engage)) is None
+    assert not window.tabs.tabBar().isHidden() and not window.statusBar().isHidden()
+    assert window.frame.column.isHidden()
+    assert window.chamber_tab.tables.tabText(0) == "Performance and geometry"
+    assert themes.capitals_font() is None
     window.modified = False
     window.close()
 

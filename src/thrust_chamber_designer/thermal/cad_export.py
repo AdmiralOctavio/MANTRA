@@ -29,7 +29,8 @@ is needed, which would take minutes for helical channels, where long twisted fac
 
 Where the number of channels changes along the chamber, the ribs and channels are lofted one by one between the ribs that start and
 end in the transitions, in pieces at the ends of the transitions, and the pieces of a rib or of a channel that divides are fused. The
-walls are lofted through circles in the same pieces (see split_model in create_step).
+walls are lofted through circles in the same pieces (see split_model in create_step). Where the fill factor steps at a split, the ribs
+change their width before the transition, in a piece of its own.
 
 The chamber axis is the x axis, lengths are in mm. The channels are open at both ends of the chamber, for manifolds to be added in CAD.
 """
@@ -259,41 +260,77 @@ def create_step(cooling_geom, filepath, fillet=0.0, separate=True, n_channels=No
         # ends of the chamber
         side = np.where(n_run[1:] > n_run[:-1], 1, -1)                 # downstream for a split, upstream for a merge
         tip = np.where(side > 0, cuts, cuts - 1)                      # station where the new ribs start or end
+        adj = tip - side                                              # the last station with the fewer channels next to it
         far = tip.copy()                                              # station at the other end of the transition
+        few_n, many_n = np.minimum(n_run[:-1], n_run[1:]), np.maximum(n_run[:-1], n_run[1:])
+        # where the fill factor changes at the split as well (a step in it, e.g. to keep the width of the channels), the ribs that go on
+        # would change their width within one step of the thermal model just before the transition, and a loft through all the sections
+        # up to it swings out far from the chamber. They change it smoothly before the transition instead (see shape), over the same
+        # length on the side with the fewer channels, where the channels are then wider than in the thermal model, never narrower
+        h_tip = np.pi * (1 - cg.psi[tip]) * (0.95 / few_n + 0.05 / many_n)   # half angle of the ribs that go on, at the tip
+        h_adj = np.pi * (1 - cg.psi[adj]) / few_n                             # and at the station before it
+        jump = np.abs(h_tip / h_adj - 1) > 0.1
+        pre = tip.copy()                                              # station where the ribs start to change their width before it
+        dx_of = lambda a, b: abs(x[min(max(b, 0), len(x) - 1)] - x[a])
+
+        def room(j, d):
+            # stations between the tip of transition j and the next one in the direction d, shared with it where it reaches towards j
+            k = j + d
+            if not 0 <= k < len(xm):
+                return len(x) - 1 - tip[j] if d > 0 else tip[j]
+            towards = side[k] == -d or (jump[k] and side[k] == d)
+            return abs(tip[k] - tip[j]) / (2 if towards else 1)
+
         for j in range(len(xm)):
-            k = j + side[j]
-            if 0 <= k < len(xm):
-                room = abs(tip[k] - tip[j]) / (2 if side[k] == -side[j] else 1)
-            else:
-                room = len(x) - 1 - tip[j] if side[j] > 0 else tip[j]
-            dx = abs(x[min(max(tip[j] + side[j], 0), len(x) - 1)] - x[tip[j]])
-            wanted = max(int(round(split_length * 1e3 / dx)), 1)
-            steps = min(wanted, int(0.8 * room))
-            if steps < 1:
-                raise ValueError('There is no room for the channel split at x = %.1f mm in the STEP model' % x[tip[j]])
-            far[j] = tip[j] + side[j] * steps
-            if steps < wanted:
-                notes.append('The channel split at x = %.1f mm is %.1f mm long instead of %.1f mm, there is no room for more'
-                             % (x[tip[j]], abs(x[far[j]] - x[tip[j]]), split_length * 1e3))
+            for d, ends in ((side[j], far), (-side[j], pre)):
+                if ends is pre and not jump[j]:
+                    continue
+                wanted = max(int(round(split_length * 1e3 / dx_of(tip[j], tip[j] + d))), 1)
+                steps = min(wanted, int(0.8 * room(j, d)))
+                if steps < 1:
+                    raise ValueError('There is no room for the channel split at x = %.1f mm in the STEP model' % x[tip[j]])
+                ends[j] = tip[j] + d * steps
+                if steps < wanted:
+                    notes.append('The %s at x = %.1f mm is %.1f mm long instead of %.1f mm, there is no room for more'
+                                 % ('channel split' if ends is far else 'change of the rib width before the channel split', x[tip[j]],
+                                    abs(x[ends[j]] - x[tip[j]]), split_length * 1e3))
+            if jump[j]:
+                notes.append('The fill factor changes from %.2f to %.2f at the channel %s at x = %.1f mm: the ribs change their width '
+                             'smoothly over %.1f mm on the side of the fewer channels, which are wider there than in the thermal model'
+                             % (cg.psi[adj[j]], cg.psi[tip[j]], 'split' if side[j] > 0 else 'merge', x[tip[j]],
+                                abs(x[pre[j]] - x[tip[j]])))
+        psi_few = lambda j, v: np.interp(np.clip(v, *sorted((x[adj[j]], x[pre[j]]))), x, cg.psi)   # the fill factor before the step
         lo, hi = x[np.minimum(tip, far)], x[np.maximum(tip, far)]
+        pre_lo, pre_hi = x[np.minimum(tip, pre)], x[np.maximum(tip, pre)]
         tip, L = x[tip], hi - lo
 
         # stations: those of the thermal model outside the transitions, which are lofted on their own (see chunks), evenly spaced in them
         u = np.arange(17) / 16
-        grid = [x[~np.any((x[:,None] > lo) & (x[:,None] < hi), axis=1)]]
-        for j in range(len(xm)):
-            grid.append((lo[j] + (hi[j] - lo[j]) * u)[1:-1])
+        spans = [(lo[j], hi[j]) for j in range(len(xm))] + [(pre_lo[j], pre_hi[j]) for j in range(len(xm)) if jump[j]]
+        grid = [x[~np.any([(x > a) & (x < b) for a, b in spans], axis=0)]]
+        for a, b in spans:
+            grid.append((a + (b - a) * u)[1:-1])
         X = np.sort(np.concatenate(grid))
-        p_lo, p_hi = [int(np.flatnonzero(X == v)[0]) for v in lo], [int(np.flatnonzero(X == v)[0]) for v in hi]
+        at = lambda v: int(np.flatnonzero(X == v)[0])
+        p_lo, p_hi = [at(v) for v in lo], [at(v) for v in hi]
         zone = np.full(len(X), -1)
         for j in range(len(xm)):
             zone[p_lo[j]:p_hi[j] + 1] = j
         U = np.where(zone >= 0, (X - lo[zone]) / (hi[zone] - lo[zone]), 0.0)
+        # the stretches before the transitions where the ribs change their width (outside the transitions, without their tip)
+        p_pre = [at(x[pre[j]]) for j in range(len(xm)) if jump[j]]
+        before = np.full(len(X), -1)
+        for j in np.flatnonzero(jump):
+            before[(X >= pre_lo[j]) & (X <= pre_hi[j]) & (zone < 0)] = j
+        V = np.zeros(len(X))                                         # how far into the stretch, from 0 where it starts to 1 at the tip
+        for j in np.flatnonzero(jump):
+            V[before == j] = np.abs(X[before == j] - x[pre[j]]) / abs(tip[j] - x[pre[j]])
         run = np.searchsorted(tip, X)                                # run of stations, outside the transitions
         RC, RI, RO, ROUT, B, TW, PSI = (np.interp(X, x, v) for v in (r_c, r_i, r_o, r_out, beta, twist, cg.psi))
         F = np.interp(X, x, f)
         for j in range(len(xm)):
-            F[zone == j] = min(f[cuts[j] - 1], f[cuts[j]])
+            F[(zone == j) | (before == j)] = min(f[cuts[j] - 1], f[cuts[j]])
+            PSI[before == j] = psi_few(j, X[before == j])
         ST = [Station(*v) for v in zip(X, RI, RO, B)]
         theta0 = np.pi / n_run[0]                                    # first rib, half a pitch from the first channel like without splits
 
@@ -307,6 +344,11 @@ def create_step(cooling_geom, filepath, fillet=0.0, separate=True, n_channels=No
             # narrow as fast as the new ribs between them grow, which keeps the channels beside a new rib as wide as after the split
             full = lambda r: np.pi * (1 - PSI[p]) / n_run[r]
             j = zone[p]
+            if j < 0 and before[p] >= 0:
+                # before a transition with a step in the fill factor: from the width of the thermal model to the one at the tip
+                m = before[p]
+                h, s = shape(q, p_lo[m] if side[m] > 0 else p_hi[m])[0], V[p]**2 * (3 - 2 * V[p])
+                return full(run[p]) + (h - full(run[p])) * s, F[p]
             if j < 0:
                 return full(run[p]), F[p]
             many = j + 1 if n_run[j + 1] > n_run[j] else j               # the side with more channels, where the new ribs are
@@ -345,7 +387,7 @@ def create_step(cooling_geom, filepath, fillet=0.0, separate=True, n_channels=No
         def angle(q, p):
             return TW[p] + theta0 + 2 * np.pi * float(q)
 
-        cut_at = sorted(set(p_lo) | set(p_hi))
+        cut_at = sorted(set(p_lo) | set(p_hi) | set(p_pre))
 
         def chunks(section, p0, p1):
             # solids lofted through the sections from station p0 to p1, in a chunk for every transition and the stretches between them.

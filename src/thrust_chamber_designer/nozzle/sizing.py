@@ -1,7 +1,7 @@
 import numpy as np
-from scipy.optimize import fsolve
+from scipy.optimize import brentq
 
-from . import isentropic as IT
+from .chamber import check_convergent, convergent_drop
 from .moc import solve
 
 
@@ -10,39 +10,61 @@ def size_nozzle(chem, operating, chamber, nozzle, mach_guess=2.23):
     for them (moc.NozzleSolution). The mass flow is everything that goes through the throat, film coolant included, sized with the
     c* of the core combustion.
 
+    The two unknowns are found one after the other. The throat is sized for the chamber pressure at the mass flow, so the exit
+    pressure depends on the design Mach number alone: it is the root of the exit pressure minus the ambient pressure, bracketed by
+    stepping up from mach_guess. The thrust is then proportional to the mass flow (the contour scales with the throat), which is
+    scaled to the target thrust. A Newton solve of both together (fsolve) took its derivatives from steps too small for the net of
+    characteristics and jumped to negative mass flows and Mach numbers for large pressure ratios, e.g. 150 bar to 0.1 bar.
+
     chem: combustion properties (core.chemistry.CEA after solve_nozzle), operating, chamber, nozzle: parts of core.design.Design
     """
-    def engine_residuals(variables):
-        mdot_guess, mach_guess = variables
+    throat = lambda mdot: np.sqrt(mdot * chem.cstar_eq * operating.eta_c_star / operating.chamber_pressure / np.pi) * 1000   # [mm]
 
-        # Ensure we use floats to prevent indexing errors
-        mdot_val = float(mdot_guess)
-        mach_val = float(mach_guess)
+    def run(mdot, mach):
+        return solve(mdot, throat(mdot), mach, chem, operating, chamber, nozzle)
 
-        A_t = (mdot_val * chem.cstar_eq * operating.eta_c_star) / operating.chamber_pressure
-        r_t = np.sqrt(A_t / np.pi) * 1000
+    # the mass flow for the target thrust with an ideal vacuum C_F of 1.8, only to have a throat of about the right size. Large enough
+    # for the convergent section to fit in front of the throat, which the exit pressure (from the narrowest point of the wall) needs
+    mdot = operating.thrust / (1.8 * chem.cstar_eq)
+    rt_min = convergent_drop(chamber.R1, chamber.R2, chamber) / (np.sqrt(chamber.contraction_ratio) - 1)
+    mdot = max(mdot, 1.1 * mdot * (rt_min / throat(mdot))**2)
 
-        result = solve(mdot_val, r_t, mach_val, chem, operating, chamber, nozzle)
+    def over(mach):
+        # exit pressure above the ambient pressure. NaN beyond the area ratios the exit Mach number can be found for, far below it
+        p = run(mdot, mach).P_exit
+        return np.nan if not np.isfinite(p) else p - operating.ambient_pressure
 
-        thrust_error = result.thrust - operating.thrust
-        pressure_error = result.P_exit - operating.ambient_pressure # Perfectly expanded target
+    # bracket: the exit pressure falls with the design Mach number
+    lo, hi = 1.0 + 1e-3, max(float(mach_guess), 1.01)
+    while True:
+        g = over(hi)
+        if not np.isfinite(g) or g < 0:
+            break
+        lo, hi = hi, hi * 1.25
+        if hi > 50:
+            raise ValueError('No nozzle expands to the ambient pressure of %.0f Pa' % operating.ambient_pressure)
+    if over(lo) < 0:
+        raise ValueError('The ambient pressure of %.0f Pa is too high for a supersonic nozzle at a chamber pressure of %.0f Pa'
+                         % (operating.ambient_pressure, operating.chamber_pressure))
+    while not np.isfinite(over(hi)):
+        # too far out for the exit Mach number: halve the interval towards the last Mach number with an exit pressure
+        mid = 0.5 * (lo + hi)
+        g = over(mid)
+        if np.isfinite(g) and g >= 0:
+            lo = mid
+        else:
+            hi = mid
+        if hi - lo < 1e-12:
+            raise ValueError('The exit Mach number can not be found for the expansion to %.0f Pa' % operating.ambient_pressure)
+    mach = brentq(over, lo, hi, xtol=1e-14, rtol=1e-15)
 
-        return [thrust_error, pressure_error]
+    # thrust proportional to the mass flow, a few times for the rounding of the net
+    for _ in range(4):
+        mdot *= operating.thrust / run(mdot, mach).thrust
+        check_convergent(chamber.R1, chamber.R2, throat(mdot), chamber)
 
-    # Preliminary estimate for initial mdot guess
-    CF_in = IT.estimate_CF(chem.gamma_throat, 5.5, operating.chamber_pressure)
-    mdot_initial = (operating.chamber_pressure * (operating.thrust / (CF_in * operating.chamber_pressure))) / chem.cstar_eq
-
-    initial_guess = [mdot_initial, mach_guess]
-
-    # Solve for perfect expansion and target thrust
-    solution, info, ier, message = fsolve(engine_residuals, x0=initial_guess, full_output=True)
-    mdot_final, mach_final = solution
-
-    A_t_final = (mdot_final * chem.cstar_eq * operating.eta_c_star) / operating.chamber_pressure
-    radius_throat_final = np.sqrt(A_t_final / np.pi) * 1000
-
-    result = solve(mdot_final, radius_throat_final, mach_final, chem, operating, chamber, nozzle)
-    result.converged = ier == 1
-    result.message = message
+    result = run(mdot, mach)
+    error = max(abs(result.thrust / operating.thrust - 1), abs(result.P_exit / operating.ambient_pressure - 1))
+    result.converged = error < 1e-6
+    result.message = 'thrust and exit pressure within %.1e of the targets' % error
     return result

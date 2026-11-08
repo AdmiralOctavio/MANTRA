@@ -224,6 +224,45 @@ def test_step_model_with_channel_splits(tmp_path, helical, separate):
         gmsh.finalize()
 
 
+@pytest.mark.parametrize("n, splits, points, note", [
+    (8, [(12, 16)], [(0, 0.3), (12, 0.2), (12, 0.4), (30, 0.4)], r"from 0\.2\d to 0\.40"),        # split downstream of the throat
+    (16, [(-12, 8)], [(-30, 0.4), (-12.5, 0.4), (-12, 0.2), (0, 0.3)], r"from 0\.2\d to 0\.40")])   # merge upstream of it
+def test_step_model_with_a_fill_factor_step_at_the_split(tmp_path, n, splits, points, note):
+    # the fill factor doubles with the number of channels, so the channels keep their width: the ribs that go on change their width
+    # before the transition. Lofted through all sections up to the step, they swung out metres from the chamber
+    import gmsh
+    design = Design(name="Split engine")
+    design.channels.n = n
+    design.channels.splits = splits
+    design.channels.fill_factor = Profile(0.4, points)
+    design.channels.helical = True
+    design.thermal.step_size = 0.005
+    nd = pipeline.design_nozzle(design)
+    path, notes = pipeline.write_step(nd, str(tmp_path))
+    assert any(re.search("fill factor changes " + note, n) for n in notes)
+
+    _, cg = pipeline.cooling_geometry(nd, full_length=True)
+    x = cg.geom[:,0]
+    ring = lambda a, b: np.trapezoid(np.pi * (b**2 - a**2), x) * 1e9
+    gmsh.initialize()
+    try:
+        gmsh.option.setNumber('General.Terminal', 0)
+        gmsh.option.setNumber('Geometry.OCCImportLabels', 1)
+        gmsh.model.occ.importShapes(path)
+        gmsh.model.occ.synchronize()
+        volumes = gmsh.model.getEntities(3)
+        # the ribs and channels stay within the outside of the channels (the bounding boxes of the walls are those of the control
+        # points of their circles, larger by up to sqrt(2))
+        lofted = [v for v in volumes if any(part in gmsh.model.getEntityName(*v) for part in ("Ribs", "Coolant channels"))]
+        assert len(lofted) == 24
+        for v in lofted:
+            b = gmsh.model.occ.getBoundingBox(*v)
+            assert max(abs(c) for c in (b[1], b[2], b[4], b[5])) < cg.r_o.max() * 1e3 + 1.0
+        assert sum(gmsh.model.occ.getMass(*v) for v in volumes) == pytest.approx(ring(cg.geom[:,1], cg.r_o + cg.t_w_o), rel=0.01)
+    finally:
+        gmsh.finalize()
+
+
 @pytest.mark.slow
 def test_thermal_run_on_the_nozzle(tmp_path):
     design = Design()

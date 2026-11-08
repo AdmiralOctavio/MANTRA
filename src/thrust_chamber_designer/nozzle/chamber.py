@@ -53,6 +53,28 @@ def _length_from_lstar(R1, R2, Rt, alpha, R_inlet, L_straight, L_total, Lstar_m)
     return L_total + L_barrel
 
 
+def convergent_drop(R1, R2, chamber):
+    # radius the arcs R1 at the throat and R2 at the chamber need between them at the slope of the convergent [mm]. The chamber
+    # radius must be at least this much above the throat radius, otherwise the arcs overlap and the wall runs through the axis
+    return (R1 + R2) * (1 - np.cos(np.deg2rad(chamber.slope)))
+
+
+def check_convergent(R1, R2, Rt, chamber):
+    """Raises a ValueError that says what to change where the convergent section of the slope with the arcs R1 and R2 [mm] does not fit
+    between the chamber and the throat of radius Rt [mm] at the contraction ratio of chamber."""
+    drop = convergent_drop(R1, R2, chamber)
+    room = Rt * (np.sqrt(chamber.contraction_ratio) - 1)
+    if drop <= room:
+        return
+    alpha_max = np.degrees(np.arccos(1 - room / (R1 + R2)))
+    raise ValueError(
+        "The convergent section does not fit: the throat radius is %.2f mm and the chamber radius %.2f mm at a contraction ratio of "
+        "%.4g, which leaves %.2f mm for the convergent, but the arcs R1 = %g mm and R2 = %g mm need %.2f mm at a slope of %g deg. "
+        "Make R1 + R2 at most %.1f mm, the slope at most %.1f deg, or the contraction ratio at least %.1f."
+        % (Rt, Rt * np.sqrt(chamber.contraction_ratio), chamber.contraction_ratio, room, R1, R2, drop, chamber.slope,
+           room / (1 - np.cos(np.deg2rad(chamber.slope))), alpha_max, (1 + drop / Rt)**2))
+
+
 def CombustionChamber(wall_x, wall_y, R1, R2, L_throat, chamber):
     # chamber: core.design.ChamberShape (slope, contraction ratio and L* or length). Returns the wall of the whole thrust chamber and
     # the chamber length from the injector to the throat [mm]

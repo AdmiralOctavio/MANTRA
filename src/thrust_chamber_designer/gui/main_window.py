@@ -3,12 +3,14 @@ import os
 from dataclasses import asdict
 
 from PySide6.QtCore import QSettings
-from PySide6.QtGui import QAction, QActionGroup, QKeySequence
-from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox, QTabWidget
+from PySide6.QtGui import QAction, QActionGroup, QFont, QKeySequence
+from PySide6.QtWidgets import (QAbstractSpinBox, QFileDialog, QGroupBox, QMainWindow, QMenu, QMessageBox, QTabBar,
+                               QTabWidget)
 
 from .. import __version__
 from ..core.design import Design
-from . import themes
+from . import sounds, themes
+from .lcars import LcarsFrame
 from .tab_chamber import ChamberTab
 from .tab_cooling import CoolingTab
 from .tab_engine import EngineTab
@@ -49,7 +51,11 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.thermal_tab, "Thermal")
         self.tabs.addTab(self.results_tab, "Results")
         self.tabs.addTab(self.throttle_tab, "Throttle")
-        self.setCentralWidget(self.tabs)
+        # the tabs in a frame that puts the elbows and the column of buttons of the LCARS theme around them
+        self.frame = LcarsFrame(self.tabs, __version__)
+        self.setCentralWidget(self.frame)
+        self.statusBar().messageChanged.connect(self.frame.set_status)
+        self.windowTitleChanged.connect(lambda title: self.frame.set_name(title.split(" - Thrust Chamber Designer")[0]))
 
         self.thermal = ThermalRun(self)
         self.thermal.log.connect(self.thermal_tab.add_log)
@@ -104,6 +110,13 @@ class MainWindow(QMainWindow):
             a.setCheckable(True)
             a.setChecked(name == current)
             group.addAction(a)
+        m.addSeparator()
+        # the chirps and alarms of the LCARS theme, on unless turned off here
+        on = self.settings.value("lcars_sounds", True, type=bool)
+        sounds.player.set_enabled(on)
+        self.sounds_action = action(m, "LCARS &sounds", self.set_sounds)
+        self.sounds_action.setCheckable(True)
+        self.sounds_action.setChecked(on)
 
         m = self.menuBar().addMenu("&Help")
         action(m, "&About", self.about)
@@ -112,6 +125,33 @@ class MainWindow(QMainWindow):
         themes.apply(self.app, name, self)
         self.settings.setValue("theme", name)
         self.redraw_plots()
+
+    def set_sounds(self, on):
+        sounds.player.set_enabled(on)
+        self.settings.setValue("lcars_sounds", bool(on))
+
+    def set_lcars(self, on):
+        """Called by themes.apply: the LCARS chrome around the tabs, the status in the bottom elbow, group titles in capitals"""
+        self.frame.set_lcars(on)
+        self.statusBar().setVisible(not on)
+        self.frame.set_status(self.statusBar().currentMessage())
+        # the menu bar does not take the font of its class from the app, it gets the capitals directly
+        capitals = themes.capitals_font() if on else None
+        for widget in [self.menuBar()] + self.menuBar().findChildren(QMenu):
+            widget.setFont(capitals if capitals is not None else QFont())
+        # the editor of a spin box starts at its left edge whatever the style sheet says: keep the digits off the peach cap
+        for box in self.findChildren(QAbstractSpinBox):
+            box.lineEdit().setTextMargins(8 if on else 0, 0, 0, 0)
+        # titles of the groups and the tabs in capitals: the style sheet would reset a font set on them before they are first shown
+        for box in self.findChildren(QGroupBox):
+            if box.property("plain_title") is None:
+                box.setProperty("plain_title", box.title())
+            box.setTitle(box.property("plain_title").upper() if on else box.property("plain_title"))
+        for bar in self.findChildren(QTabBar):
+            if bar.property("plain_titles") is None:
+                bar.setProperty("plain_titles", [bar.tabText(i) for i in range(bar.count())])
+            for i, text in enumerate(bar.property("plain_titles")):
+                bar.setTabText(i, text.upper() if on else text)
 
     def redraw_plots(self):
         # the plots are made again in the look of the new theme
@@ -261,6 +301,9 @@ class MainWindow(QMainWindow):
             self.cooling_tab.draw_preview()
             self.thermal_tab.refresh()
             self.statusBar().showMessage("Nozzle solved: throat %.2f mm, mass flow %.4f kg/s" % (2 * nd.solution.throat_radius, nd.solution.mdot), 8000)
+            # the hail when the nozzle was what was asked for, not on the way to a STEP export or with a thermal run that goes on
+            if not callable(then) and not self.thermal.running:
+                sounds.play("complete")
             if callable(then):
                 then()
 
@@ -300,6 +343,7 @@ class MainWindow(QMainWindow):
 
     def _thermal_done(self, folder, geometry, warnings):
         self.thermal_tab.finished_run("Finished")
+        sounds.play("complete")
         self.results_tab.load(folder, geometry, warnings, self.thermal_design)
         self.tabs.setCurrentWidget(self.results_tab)
         self.statusBar().showMessage("Thermal simulation finished, results in " + folder, 10000)
@@ -338,6 +382,7 @@ class MainWindow(QMainWindow):
 
     def _throttle_done(self, folder, map_results, schedules):
         self.throttle_tab.finished_run("Finished")
+        sounds.play("complete")
         self.throttle_tab.show_results(map_results, schedules)
         self.statusBar().showMessage("Throttle analysis finished, results in " + folder, 10000)
 
