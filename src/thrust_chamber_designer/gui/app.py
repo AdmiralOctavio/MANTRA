@@ -40,6 +40,11 @@ def self_test(folder):
             lines.append(message[1])
             break
     process.join(10)
+    # the sounds of the LCARS theme: the build must not leave the multimedia module of Qt or the sound files out
+    from .sounds import check
+    sounds_ok, text = check()
+    lines.append(text)
+    ok = ok and sounds_ok
     lines.append("SELF TEST " + ("PASSED" if ok else "FAILED"))
     with open(os.path.join(folder, "self_test.txt"), "w") as f:
         f.write("\n".join(lines) + "\n")

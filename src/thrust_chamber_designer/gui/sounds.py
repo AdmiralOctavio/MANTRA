@@ -109,7 +109,7 @@ class Sounds(QObject):
         for effect in self.effects.values():
             effect.stop()
 
-    # â”€â”€ what the widgets do â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── what the widgets do ──────────────────────────────────────────────
     def eventFilter(self, obj, event):
         if self.active:
             try:
@@ -183,3 +183,25 @@ def set_theme(lcars):
     app = QApplication.instance()
     if app is not None:
         player.set_theme(app, lcars)
+
+def check(seconds=5.0):
+    """For the self test of the packaged app: the multimedia module of Qt and the sound files are there. Returns (ok, text). How
+    many sounds Qt could read is told, but does not fail the test: a build machine may have no sound device."""
+    try:
+        from PySide6.QtMultimedia import QSoundEffect
+    except ImportError as e:
+        return False, "LCARS sounds: no Qt multimedia module (%s)" % e
+    names = sorted({name for names in SOUNDS.values() for name in names})
+    missing = [name for name in names if not os.path.exists(os.path.join(FOLDER, name + ".wav"))]
+    if missing:
+        return False, "LCARS sounds: missing " + ", ".join(missing)
+    app = QApplication.instance() or QApplication([])
+    sounds = Sounds()
+    sounds._load()
+    end = time.monotonic() + seconds
+    while time.monotonic() < end and any(e.status() in (QSoundEffect.Status.Null, QSoundEffect.Status.Loading)
+                                         for e in sounds.effects.values()):
+        app.processEvents()
+        time.sleep(0.02)
+    ready = sum(e.status() == QSoundEffect.Status.Ready for e in sounds.effects.values())
+    return True, "LCARS sounds: %d of %d read" % (ready, len(names))

@@ -26,12 +26,16 @@ a = Analysis(
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
-    # QtWebEngine (Chromium) would add about 400 MB for the embedded 3D view, which opens in the web browser without it
+    # QtWebEngine (Chromium) would add about 400 MB for the embedded 3D view, which opens in the web browser without it.
+    # QtMultimedia stays: it plays the sounds of the LCARS theme
     excludes=["tkinter", "PyQt5", "PyQt6", "IPython", "pytest", "streamlit", "rocketcea",
               "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets", "PySide6.QtWebChannel", "PySide6.QtQuick", "PySide6.QtQml",
-              "PySide6.QtQuickWidgets", "PySide6.Qt3DCore", "PySide6.QtMultimedia"],
+              "PySide6.QtQuickWidgets", "PySide6.Qt3DCore"],
     noarchive=False,
 )
+# the sounds are WAV files, which Qt plays without FFmpeg (about 20 MB, for compressed audio and video)
+FFMPEG = ("avcodec", "avformat", "avutil", "avfilter", "avdevice", "swresample", "swscale", "ffmpegmediaplugin")
+a.binaries = [b for b in a.binaries if not os.path.basename(b[0]).lower().startswith(FFMPEG)]
 pyz = PYZ(a.pure)
 # icon of the exe in the Explorer and on the desktop, the same file the window uses
 icon = os.path.join(SPECPATH, os.pardir, "src", "thrust_chamber_designer", "gui", "icons", "app.ico")
