@@ -154,6 +154,9 @@ QSlider::groove:horizontal { height: 8px; border-radius: 4px; background: #22223
 QSlider::sub-page:horizontal { background: #9999cc; border-radius: 4px; }
 QSlider::handle:horizontal { width: 14px; margin: -7px 0; border-radius: 4px; background: #ff9900; }
 QSlider::handle:horizontal:hover { background: #ffcc99; }
+QSlider::groove:horizontal:disabled { background: #14141f; }
+QSlider::sub-page:horizontal:disabled { background: #333355; }
+QSlider::handle:horizontal:disabled { background: #4d3326; }
 
 QCheckBox, QRadioButton, QLabel { background: transparent; }
 QCheckBox { spacing: 8px; }
@@ -267,8 +270,40 @@ QProgressBar::chunk {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #c5f59d, stop:0.45 #74d84a, stop:0.46 #4fbb27, stop:1 #84e05a);
 }
 QScrollArea, QScrollArea > QWidget > QWidget { background: transparent; }
-QSplitter::handle { background: transparent; }
+QScrollArea { border: none; }
+/* scroll bars of glass: a clear track and a glossy handle that turns aqua under the mouse */
+QScrollBar:vertical { background: rgba(255, 255, 255, 110); width: 14px; margin: 0; border: 1px solid #c3dbef; border-radius: 7px; }
+QScrollBar:horizontal { background: rgba(255, 255, 255, 110); height: 14px; margin: 0; border: 1px solid #c3dbef; border-radius: 7px; }
+QScrollBar::handle:vertical { min-height: 30px; margin: 1px; border: 1px solid #7fa9cf; border-radius: 5px;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #fdfeff, stop:0.45 #dcedfb, stop:0.46 #c2def6, stop:1 #dbecfb); }
+QScrollBar::handle:horizontal { min-width: 30px; margin: 1px; border: 1px solid #7fa9cf; border-radius: 5px;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #fdfeff, stop:0.45 #dcedfb, stop:0.46 #c2def6, stop:1 #dbecfb); }
+QScrollBar::handle:vertical:hover, QScrollBar::handle:vertical:pressed { border-color: #3c95db;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #f4fbff, stop:0.45 #c3e8fd, stop:0.46 #8fd2fa, stop:1 #c2e8fc); }
+QScrollBar::handle:horizontal:hover, QScrollBar::handle:horizontal:pressed { border-color: #3c95db;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #f4fbff, stop:0.45 #c3e8fd, stop:0.46 #8fd2fa, stop:1 #c2e8fc); }
+QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; border: none; background: none; }
+QScrollBar::add-page, QScrollBar::sub-page { background: none; }
+/* a short grip in the middle of the handle of a splitter shows where to drag */
+QSplitter::handle:vertical { height: 7px; background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(255,255,255,0),
+    stop:0.46 rgba(255,255,255,0), stop:0.47 #a3cbe9, stop:0.53 #a3cbe9, stop:0.54 rgba(255,255,255,0), stop:1 rgba(255,255,255,0));
+    margin: 2px 0; border-radius: 1px; }
+QSplitter::handle:horizontal { width: 7px; background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(255,255,255,0),
+    stop:0.46 rgba(255,255,255,0), stop:0.47 #a3cbe9, stop:0.53 #a3cbe9, stop:0.54 rgba(255,255,255,0), stop:1 rgba(255,255,255,0));
+    margin: 0 2px; border-radius: 1px; }
+/* tool bars of the plots: buttons of glass that show under the mouse. No background for the tool bar itself: matplotlib takes its
+   icons in white if the tool bar tells a dark background, and a clear one counts as black */
+QToolBar { border: none; spacing: 2px; }
+QToolButton { background: transparent; border: 1px solid transparent; border-radius: 4px; padding: 3px; }
+QToolButton:hover { border-color: #8cc4ef;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #f8fcff, stop:0.48 #dff1fd, stop:0.5 #c5e4fa, stop:1 #def1fd); }
+QToolButton:pressed, QToolButton:checked { border-color: #3c95db;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #c6e5fa, stop:0.48 #a9d8f7, stop:0.5 #8ecbf3, stop:1 #b3dcf6); }
 QSlider::groove:horizontal { height: 6px; border-radius: 3px; background: #c9e2f5; border: 1px solid #9ec3e2; }
+QSlider::sub-page:horizontal { height: 6px; border-radius: 3px; border: 1px solid #5aa7e6;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #b6ecff, stop:0.5 #55b7f0, stop:1 #2f8ad6); }
+QSlider::handle:horizontal:hover { border-color: #2a7a2a;
+    background: qradialgradient(cx:0.4, cy:0.3, radius:0.8, fx:0.4, fy:0.3, stop:0 #ffffff, stop:0.5 #a6e87c, stop:1 #4cb521); }
 QSlider::handle:horizontal { width: 14px; margin: -6px 0; border-radius: 7px; border: 1px solid #3c80bf;
     background: qradialgradient(cx:0.4, cy:0.3, radius:0.8, fx:0.4, fy:0.3, stop:0 #ffffff, stop:0.5 #8fd0fb, stop:1 #2f8ad6); }
 QCheckBox, QRadioButton, QLabel { background: transparent; }
@@ -369,6 +404,8 @@ def apply(app, name, window=None):
     if window is not None:
         if hasattr(window, "set_lcars"):
             window.set_lcars(name == "LCARS")
+        if hasattr(window, "set_backdrop"):
+            window.set_backdrop(name)
         frame_colors(window, name)
 
 

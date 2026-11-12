@@ -49,6 +49,7 @@ class ResultsTab(QWidget):
         self.canvases = {}
         for title, name in PLOTS:
             canvas = PlotCanvas()
+            canvas.placeholder("No results yet")
             self.canvases[name] = canvas
             self.tabs.addTab(canvas, title)
 
@@ -63,6 +64,7 @@ class ResultsTab(QWidget):
         row.addWidget(self.section_label)
         s_layout.addLayout(row)
         self.section_canvas = PlotCanvas()
+        self.section_canvas.placeholder("No results yet")
         s_layout.addWidget(self.section_canvas, 1)
         self.tabs.addTab(sections, "Sections")
 
@@ -111,7 +113,7 @@ class ResultsTab(QWidget):
             if fig is not None:
                 canvas.set_figure(fig)
             else:
-                canvas.clear()
+                canvas.placeholder("Not part of these results")
         self._summary(plot.data, contour)
 
         path = os.path.join(folder, "section_fields.npz")

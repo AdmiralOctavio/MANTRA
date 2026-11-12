@@ -316,8 +316,10 @@ not as a life.
 | GRCop-42 | extruded, 500, 650 and 800 C, 2.5 to 850 h (Gradl et al., AIAA-2019-4228, figure 11) | 15.5, fitted | 0.9 x stress, estimate |
 | CuCr1Zr | ITER grade sheet, 500 C only, 4.7 to 530 h (Wang et al., Mater. Sci. Eng. A 2020, ORNL) | 20, assumed | 0.9 x stress, estimate |
 | SS316L, SS14404 | L-PBF 316L, 550 to 650 C, 175 to 300 MPa (Wang et al., J. Nucl. Mater. 2021, ORNL) | 17 | data are of printed parts |
+| AlSi10Mg | L-PBF, as deposited, 150 to 225 C, 110 to 283 MPa (Paoletti et al., Mater. Sci. Eng. A 2021, figure 7), rupture times from a Monkman-Grant estimate | 25, fitted | 0.85 x stress for stress relieved parts, estimate |
 
-No creep data were found that could be trusted for printed Ti-6Al-4V and AlSi10Mg, they are not screened. The CuCr1Zr curve is the least reliable:
+No creep data were found that could be trusted for printed Ti-6Al-4V, it is not screened. The AlSi10Mg rupture times are estimated: the paper gives
+minimum creep rates, and the times follow from the product rate x time to rupture = 0.023 of its two complete creep curves. The CuCr1Zr curve is the least reliable:
 the data are of one temperature, and CuCrZr overages and softens above about 400 C, so its creep strength changes faster with temperature than a
 single Larson-Miller curve can show. Creep under the thermal (secondary) stresses is not part of the rupture screening: they relax by creep while
 the engine runs and reverse at shut down, which thins and bulges the inner wall over many firings (the "doghouse" failure of regeneratively
@@ -369,12 +371,15 @@ file, plotted in 'life.png' and printed at the end of the run; sections where a 
 | GRCop-42 | extruded, 500, 650 and 800 C (Gradl et al., AIAA-2019-4228, figure 10) | wrought, RT to 600 C pooled (same paper, figure 2) |
 | CuCr1Zr | 216 and 300 C laws (Li, Thomas, Stubbins, Metall. Mater. Trans. A 2000, table II), 500 C (Wang et al. 2020, ORNL) | SAA, RT to 500 C, Coffin-Manson fit (Zhang, Gaganidze, Gorley, CuCrZr material property handbook) |
 | SS316L, SS14404 | L-PBF, 550 to 650 C (Wang et al. 2021, ORNL, figure 6) | wrought austenitic steels in air, RT to about 400 C (NUREG/CR-6909) |
+| AlSi10Mg | L-PBF as deposited, 150 to 225 C, one law with n = 17 (Paoletti et al., Mater. Sci. Eng. A 2021, figure 7), 0.85 x stress for stress relief | L-PBF stress relieved at 300 C, RT only, Coffin-Manson-Basquin fit (Fernandes et al., Procedia Struct. Integr. 2022, figure 4b) |
 
 For CuCr1Zr and the 316L grades the library now also holds the yield and ultimate strength over temperature (CuCrZr: average fits of the handbook
 above; 316L: as built L-PBF along the build direction, Dryepondt et al., Addit. Manuf. 2021, ORNL), and for 316L the modulus and thermal expansion
 of EN 10088-1, so the wall stress analysis runs for them as well. The liner temperatures of small engines are often below the test temperatures of
 the creep data; the rates are then extrapolated in 1 / T and flagged. The CuCrZr lots differ in heat treatment, so its temperature dependence is
-the least certain, and the 500 C fatigue tests of CuCrZr lie a factor of 2 to 3 below its fit.
+the least certain, and the 500 C fatigue tests of CuCrZr lie a factor of 2 to 3 below its fit. AlSi10Mg has the yield and ultimate strength,
+modulus and thermal expansion of stress relieved L-PBF parts (Lehmhus et al., Materials 2022; EOS data sheet). Its fatigue curve is of room
+temperature only, so every hot wall life is flagged as extrapolated and is likely optimistic.
 
 ### Throttling
 'throttle.py' analyses a finished design while throttling. The contour stays, and an operating point is a chamber pressure and a core O/F.

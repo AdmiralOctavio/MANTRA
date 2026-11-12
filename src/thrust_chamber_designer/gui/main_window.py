@@ -2,7 +2,7 @@ import copy
 import os
 from dataclasses import asdict
 
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QSettings, QTimer
 from PySide6.QtGui import QAction, QActionGroup, QFont, QKeySequence
 from PySide6.QtWidgets import (QAbstractSpinBox, QFileDialog, QGroupBox, QMainWindow, QMenu, QMessageBox, QTabBar,
                                QTabWidget)
@@ -17,7 +17,7 @@ from .tab_engine import EngineTab
 from .tab_results import ResultsTab
 from .tab_thermal import ThermalTab
 from .tab_throttle import ThrottleTab
-from .widgets import Bindings
+from .widgets import Bindings, PlotCanvas
 from .worker import ThermalRun, ThrottleRun, results_geometry, run_in_thread
 from .. import pipeline
 from ..core.mass_budget import mass_budget
@@ -66,8 +66,14 @@ class MainWindow(QMainWindow):
         self.throttle = ThrottleRun(self)
         self.throttle.log.connect(self.throttle_tab.add_log)
         self.throttle.point.connect(self.throttle_tab.add_point)
+        self.throttle.stage.connect(self.throttle_tab.add_progress)
         self.throttle.done.connect(self._throttle_done)
         self.throttle.failed.connect(self._throttle_failed)
+
+        # the lights in the top bar of the LCARS theme run while a job runs
+        self.busy_timer = QTimer(self, interval=300)
+        self.busy_timer.timeout.connect(lambda: self.frame.set_busy(self.solving or self.thermal.running or self.throttle.running))
+        self.busy_timer.start()
 
         self._menus()
         self.resize(1400, 900)
@@ -153,8 +159,15 @@ class MainWindow(QMainWindow):
             for i, text in enumerate(bar.property("plain_titles")):
                 bar.setTabText(i, text.upper() if on else text)
 
+    def set_backdrop(self, name):
+        """Called by themes.apply: the bubbles of the Aero theme behind the tabs"""
+        self.frame.set_backdrop("aero" if name == "Aero" else None)
+
     def redraw_plots(self):
-        # the plots are made again in the look of the new theme
+        # the plots are made again in the look of the new theme; first every canvas as it is, so that the ones with nothing to show yet
+        # (no nozzle, no results) do not keep the background of the theme before
+        for canvas in self.findChildren(PlotCanvas):
+            canvas.restyle()
         self.engine_tab.update_chart()
         self.chamber_tab.draw()
         self.cooling_tab.draw_preview()
@@ -200,6 +213,18 @@ class MainWindow(QMainWindow):
     def refresh(self):
         for tab in (self.engine_tab, self.chamber_tab, self.cooling_tab, self.thermal_tab, self.throttle_tab):
             tab.refresh()
+        self.show_readout()
+
+    def show_readout(self):
+        # main numbers of the design on the column of the LCARS theme, those of the nozzle only while it is the one of the inputs
+        d, nd = self.design, self.nozzle
+        rows = [("Chamber pressure", "%.1f bar" % (d.operating.chamber_pressure / 1e5)), ("O/F", "%.2f" % d.operating.of_ratio),
+                ("Thrust", "%.0f N" % d.operating.thrust)]
+        if nd is not None and _sizing_inputs(d) == _sizing_inputs(nd.design):
+            s = nd.solution
+            rows += [("Throat", "%.2f mm" % (2 * s.throat_radius)), ("Exit", "%.2f mm" % (2 * s.exit_radius)),
+                     ("Mass flow", "%.3f kg/s" % s.mdot)]
+        self.frame.set_readout(rows)
 
     def _title(self):
         name = os.path.basename(self.path) if self.path else "untitled"
@@ -214,6 +239,7 @@ class MainWindow(QMainWindow):
         self.thermal_tab.folder.setText("")
         self.throttle_tab.clear_results()
         self.chamber_tab.status.setText("Not solved yet")
+        self.chamber_tab.draw()
         self.refresh()
         self._title()
 
@@ -297,6 +323,7 @@ class MainWindow(QMainWindow):
             self.solving = False
             self.chamber_tab.solve_button.setEnabled(True)
             self.nozzle = nd
+            self.show_readout()
             self.chamber_tab.show_solution(nd)
             self.cooling_tab.draw_preview()
             self.thermal_tab.refresh()

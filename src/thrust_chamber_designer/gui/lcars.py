@@ -1,13 +1,19 @@
 """
 LCARS chrome of the app: the elbows, bars and the column of buttons of a Starfleet console around the tabs. LcarsFrame holds the
 tab widget in every theme; only in the LCARS theme (themes.py) it shows the elbows and the column, which then stands in for the tab bar,
-and the bottom elbow shows the messages of the status bar.
+and the bottom elbow shows the messages of the status bar. While the app works on something a row of lights runs in the top bar, and
+the long block of the column lists the main numbers of the design.
+
+In the Aero theme the frame paints the backdrop of the window instead: light from the upper right, sweeps of light and the glassy
+bubbles of the Frutiger Aero look, behind the tabs.
 """
 
 import datetime
 
-from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QFontDatabase, QFontMetricsF, QPainter, QPainterPath
+import numpy as np
+from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
+from PySide6.QtGui import (QColor, QFont, QFontDatabase, QFontMetricsF, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap,
+                           QRadialGradient)
 from PySide6.QtWidgets import QAbstractButton, QButtonGroup, QGridLayout, QSizePolicy, QVBoxLayout, QWidget
 
 # colours of the LCARS consoles of the 24th century
@@ -78,6 +84,7 @@ class Elbow(QWidget):
         self.label = ""
         self.text = ""
         self.title = ""
+        self.busy = None            # None, or the light of the row in the bar that is lit: the app is working on something
         self.setFixedHeight(height)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
@@ -128,7 +135,15 @@ class Elbow(QWidget):
         x = x1 + GAP
         short = 80
         if title_x - 10 - x > short + GAP + 40:
-            p.fillRect(self._rect(x, 0, short, BAR), block_color)
+            if self.busy is None:
+                p.fillRect(self._rect(x, 0, short, BAR), block_color)
+            else:
+                # the short block as a row of lights, one after the other lit
+                lights = 4
+                light = (short - (lights - 1) * 3) / lights
+                for i in range(lights):
+                    lit = i == self.busy % lights
+                    p.fillRect(self._rect(x + i * (light + 3), 0, light, BAR), QColor("#ffffff") if lit else block_color.darker(170))
             x += short + GAP
         if title_x - 10 > x:
             p.fillRect(self._rect(x, 0, title_x - 10 - x, BAR), long_color)
@@ -210,18 +225,103 @@ class ColumnButton(QAbstractButton):
 
 
 class Block(QWidget):
-    """A plain block of the column, fills the space under the buttons"""
+    """A plain block of the column, fills the space under the buttons. rows: (name, value) written on it from its bottom up, as many
+    as fit, black on its colour like the numbers on the blocks of the consoles"""
+
+    ROW = 34
 
     def __init__(self, color, parent=None):
         super().__init__(parent)
         self.color = QColor(color)
+        self.rows = []
         self.setFixedWidth(COLUMN)
         self.setMinimumHeight(GAP)
+
+    def set_rows(self, rows):
+        if rows != self.rows:
+            self.rows = list(rows)
+            self.update()
 
     def paintEvent(self, event):
         p = QPainter(self)
         p.fillRect(self.rect(), self.color)
+        p.setPen(QColor("#000000"))
+        y = self.height() - 8
+        for name, value in reversed(self.rows):
+            if y - self.ROW < 6:
+                break
+            p.setFont(font(17))
+            p.drawText(QRectF(8, y - 20, self.width() - 24, 20), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom, value)
+            p.setFont(font(10))
+            p.drawText(QRectF(8, y - self.ROW, self.width() - 24, 12), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom, name)
+            y -= self.ROW + 4
         p.end()
+
+
+def aero_backdrop(width, height, ratio=1.0):
+    """Backdrop of the window in the Aero theme, to paint over its sky: light from the upper right, two sweeps of light and glassy
+    bubbles towards the edges, all faint enough for the text of the tabs over them"""
+    pixmap = QPixmap(max(int(width * ratio), 1), max(int(height * ratio), 1))
+    pixmap.setDevicePixelRatio(ratio)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pixmap)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setPen(Qt.PenStyle.NoPen)
+    w, h = float(width), float(height)
+
+    glow = QRadialGradient(QPointF(0.94 * w, -0.08 * h), 0.75 * max(w, h))
+    glow.setColorAt(0.0, QColor(255, 255, 255, 150))
+    glow.setColorAt(0.35, QColor(255, 255, 255, 45))
+    glow.setColorAt(1.0, QColor(255, 255, 255, 0))
+    p.fillRect(QRectF(0, 0, w, h), glow)
+
+    # sweeps of light from the lower left up to the right edge, brightest in their middle
+    for y0, y1, thick, alpha in ((0.80, 0.42, 0.11, 46), (0.95, 0.62, 0.07, 34)):
+        path = QPainterPath(QPointF(-0.02 * w, y0 * h))
+        path.cubicTo(0.32 * w, (y0 - 0.02) * h, 0.62 * w, (y1 + 0.26) * h, 1.02 * w, y1 * h)
+        path.lineTo(1.02 * w, (y1 + thick) * h)
+        path.cubicTo(0.64 * w, (y1 + 0.30 + thick) * h, 0.34 * w, (y0 + 0.02 + 0.4 * thick) * h, -0.02 * w, (y0 + 0.3 * thick) * h)
+        path.closeSubpath()
+        sweep = QLinearGradient(0, 0, w, 0)
+        sweep.setColorAt(0.0, QColor(255, 255, 255, 0))
+        sweep.setColorAt(0.6, QColor(255, 255, 255, alpha))
+        sweep.setColorAt(1.0, QColor(215, 245, 255, alpha + 30))
+        p.fillPath(path, sweep)
+
+    # bubbles: a clear ball with a bright rim, a highlight on its upper left and a hint of the green below
+    rng = np.random.default_rng(11)
+    spots = [(0.80 + 0.2 * rng.random(), 0.45 + 0.55 * rng.random()) for _ in range(9)]           # down the right edge
+    spots += [(0.30 + 0.5 * rng.random(), 0.90 + 0.1 * rng.random()) for _ in range(5)]            # along the bottom
+    spots += [(0.55 + 0.4 * rng.random(), 0.02 + 0.06 * rng.random()) for _ in range(4)]           # next to the tabs
+    for fx, fy in spots:
+        r = float(rng.uniform(9, 46)) * (1.6 if fx > 0.9 and fy > 0.6 else 1.0)
+        c = QPointF(fx * w, fy * h)
+        ball = QRadialGradient(c, r, QPointF(c.x() - 0.3 * r, c.y() - 0.35 * r))
+        ball.setColorAt(0.0, QColor(255, 255, 255, 14))
+        ball.setColorAt(0.72, QColor(210, 240, 255, 26))
+        ball.setColorAt(0.92, QColor(170, 222, 250, 78))
+        ball.setColorAt(1.0, QColor(255, 255, 255, 130))
+        p.setBrush(ball)
+        p.setPen(QPen(QColor(255, 255, 255, 120), 0.8))
+        p.drawEllipse(c, r, r)
+        p.setPen(Qt.PenStyle.NoPen)
+        shade = QRadialGradient(QPointF(c.x() + 0.25 * r, c.y() + 0.45 * r), 0.6 * r)
+        shade.setColorAt(0.0, QColor(150, 225, 170, 50))
+        shade.setColorAt(1.0, QColor(150, 225, 170, 0))
+        p.setBrush(shade)
+        p.drawEllipse(c, 0.96 * r, 0.96 * r)
+        p.save()
+        p.translate(c.x() - 0.36 * r, c.y() - 0.42 * r)
+        p.rotate(-38)
+        shine = QRadialGradient(QPointF(0, 0), 0.34 * r)
+        shine.setColorAt(0.0, QColor(255, 255, 255, 190))
+        shine.setColorAt(1.0, QColor(255, 255, 255, 0))
+        p.setBrush(shine)
+        p.scale(1.0, 0.55)
+        p.drawEllipse(QPointF(0, 0), 0.34 * r, 0.34 * r)
+        p.restore()
+    p.end()
+    return pixmap
 
 
 class LcarsFrame(QWidget):
@@ -232,6 +332,10 @@ class LcarsFrame(QWidget):
         super().__init__(parent)
         self.tabs = tabs
         self.lcars = False
+        self.backdrop = None            # 'aero': the frame paints the bubbles of the Aero theme behind the tabs
+        self._backdrop = None           # (size, pixmap) of the backdrop as it was last painted
+        self.lights = QTimer(self, interval=130)
+        self.lights.timeout.connect(self._next_light)
         self.top = Elbow(False, (ORANGE, LILAC, PEACH, ORANGE), 84)
         self.top.label = "TCD %s" % version if version else "TCD"
         self.top.title = "Thrust Chamber Designer"
@@ -249,7 +353,8 @@ class LcarsFrame(QWidget):
             button = ColumnButton(i + 1, tabs.tabText(i).replace("&&", "&"), BUTTON_COLORS[i % len(BUTTON_COLORS)])
             self.buttons.addButton(button, i)
             column.addWidget(button)
-        column.addWidget(Block(GOLD), 1)
+        self.readout = Block(GOLD)
+        column.addWidget(self.readout, 1)
         end = Block(PEACH)
         end.setFixedHeight(28)
         column.addWidget(end)
@@ -277,11 +382,49 @@ class LcarsFrame(QWidget):
     def set_name(self, text):
         self.top.set_text(text)
 
+    def set_readout(self, rows):
+        """(name, value) of the main numbers of the design, for the long block of the column"""
+        self.readout.set_rows(rows)
+
+    def set_busy(self, on):
+        """A row of lights runs in the top bar while the app works on something"""
+        if on == (self.top.busy is not None):
+            return
+        self.top.busy = 0 if on else None
+        if on and self.lcars:
+            self.lights.start()
+        else:
+            self.lights.stop()
+        self.top.update()
+
+    def _next_light(self):
+        if self.top.busy is not None:
+            self.top.busy += 1
+            self.top.update()
+
+    def set_backdrop(self, name):
+        self.backdrop = name
+        self.update()
+
+    def paintEvent(self, event):
+        if self.backdrop != "aero":
+            return
+        size = (self.width(), self.height(), self.devicePixelRatioF())
+        if self._backdrop is None or self._backdrop[0] != size:
+            self._backdrop = (size, aero_backdrop(*size))
+        p = QPainter(self)
+        p.drawPixmap(0, 0, self._backdrop[1])
+        p.end()
+
     def set_lcars(self, on):
         self.lcars = on
         for widget in (self.top, self.bottom, self.column):
             widget.setVisible(on)
         self.tabs.tabBar().setVisible(not on)
+        if on and self.top.busy is not None:
+            self.lights.start()
+        elif not on:
+            self.lights.stop()
         if on:
             self.bottom.title = "Stardate " + stardate()
             self.grid.setContentsMargins(6, 6, 6, 6)

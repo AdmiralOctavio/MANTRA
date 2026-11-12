@@ -53,8 +53,11 @@ The tabs follow the order of the work:
    performance and the mass flows. *Export contour* writes `params.csv`, `Contour.csv`, `Contour.dxf` and an STL.
 3. **Cooling**: coolant, film cooling, cooling channels and wall material, with the firing time and number of firings for the creep
    rupture screening and the cyclic life. Channel height, fill factor, inner wall thickness and
-   helix angle can be constant or given as points along the chamber. The preview shows the channels at the throat and the channel
-   sizes along the contour against the smallest printable channel. *Export 3D model (STEP)* writes `Cooling_Jacket.step` for CAD
+   helix angle can be constant or given as points along the chamber. The preview shows a piece of the jacket in 3D, cut at a
+   section that the slider moves along the chamber (at the throat to start with), with the wall half transparent so the channels
+   show and their sizes written on the cut; next to it the whole chamber with the coolant in its channels, which shows the number
+   of channels, their splits and the helix; and under them the channel sizes along the contour against the smallest printable
+   channel. Drag a picture to turn it, double click to put it back. *Export 3D model (STEP)* writes `Cooling_Jacket.step` for CAD
    (Fusion 360, CATIA / 3DEXPERIENCE, SolidWorks): an assembly of named, coloured parts, either inner wall, outer wall, ribs and
    coolant channels, or the jacket as one solid and the coolant channels. Ribs and channels are one part each, with a body per rib
    or channel; the channel bodies are the coolant volume, for cutting, CFD or a look at the channels. The channel corners are

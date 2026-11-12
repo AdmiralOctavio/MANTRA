@@ -156,6 +156,83 @@ def test_lcars_theme_puts_the_chrome_on_and_takes_it_off(app):
     window.close()
 
 
+def test_plots_take_the_theme_before_there_is_anything_to_plot(app):
+    from matplotlib.colors import to_hex
+
+    from thrust_chamber_designer.gui import themes
+    from thrust_chamber_designer.gui.main_window import MainWindow
+
+    window = MainWindow(app)
+    themes.apply(app, "LCARS", window)
+    window.redraw_plots()
+    # no white figure of matplotlib where the nozzle is not solved yet or there are no results
+    canvases = [window.chamber_tab.plot, window.cooling_tab.preview, window.throttle_tab.map] + list(window.results_tab.canvases.values())
+    assert all(to_hex(canvas.figure.get_facecolor()) == "#000000" for canvas in canvases)
+    assert "SOLVE THE NOZZLE" in window.chamber_tab.plot.figure.texts[0].get_text()
+    themes.apply(app, "Light", window)
+    window.redraw_plots()
+    assert all(to_hex(canvas.figure.get_facecolor()) == "#ffffff" for canvas in canvases)
+    window.modified = False
+    window.close()
+
+
+def test_cooling_tab_draws_the_jacket(app):
+    import numpy as np
+
+    from thrust_chamber_designer import plot_style
+    from thrust_chamber_designer.gui.main_window import MainWindow
+
+    window = MainWindow(app)
+    window.resize(1300, 850)
+    tab = window.cooling_tab
+    tab.draw_preview()
+    assert tab.jacket.contour is None and not tab.station.isEnabled()
+    assert not tab.jacket.grab().isNull()
+
+    window.solve_nozzle()
+    assert _wait(app, lambda: window.nozzle is not None)
+    tab.draw_preview()
+    # the cut starts at the throat, with the sizes of the thermal model: width at the bottom of the channel
+    ch, s = window.design.channels, window.nozzle.solution
+    assert tab.station_label.text().endswith("throat")
+    assert tab.jacket.station == pytest.approx(s.wall_x[np.argmin(s.wall_y)] / 1000)
+    sizes = tab.jacket.sizes()
+    r_i = s.wall_y.min() + ch.inner_wall.value * 1e3
+    assert sizes["n"] == ch.n
+    assert sizes["width"] == pytest.approx(2 * np.pi * ch.fill_factor.value / ch.n * r_i, rel=1e-6)
+    assert sizes["width"] + sizes["rib"] == pytest.approx(2 * np.pi / ch.n * r_i, rel=1e-6)
+
+    def colours(image):
+        return {image.pixel(x, y) for x in range(0, image.width(), 7) for y in range(0, image.height(), 7)}
+
+    # a picture in every theme, of straight and of helical channels with a split
+    for theme in plot_style.THEMES:
+        tab.jacket.set_theme(theme)
+        assert len(colours(tab.jacket.grab().toImage())) > 50
+    ch.helical = True
+    ch.n = 20
+    ch.splits = [(-15.0, 10), (8.0, 20)]
+    tab.draw_preview()
+    assert len(colours(tab.jacket.grab().toImage())) > 50
+
+    # the slider moves the cut, the picture and the line on the plot of the sizes follow it
+    tab.station.setValue(tab.SLIDER // 2)
+    middle = 0.5 * (s.wall_x[0] + s.wall_x[-1])
+    assert tab.jacket.station * 1e3 == pytest.approx(middle, abs=0.2)
+    assert tab.marker.get_xdata()[0] == pytest.approx(middle, abs=0.2)
+    assert tab.jacket.sizes()["n"] == 20 and tab.jacket.sizes()["helix"] == pytest.approx(30.0)
+    assert not tab.jacket.grab().isNull()
+    tab.station.setValue(tab.SLIDER)                # the exit: the piece runs upstream of the cut
+    assert not tab.jacket.grab().isNull()
+    tab.station.setValue(0)                         # the injector: downstream
+    assert not tab.jacket.grab().isNull()
+    tab.to_throat()
+    assert tab.station_label.text().endswith("throat")
+    assert tab.jacket.sizes()["n"] == 10            # between the two splits
+    window.modified = False
+    window.close()
+
+
 def test_cooling_tab_exports_step(app, tmp_path, monkeypatch):
     from thrust_chamber_designer.gui import tab_cooling
     from thrust_chamber_designer.gui.main_window import MainWindow
@@ -250,15 +327,31 @@ def test_throttle_tab_shows_results_and_marks_outdated_ones(app):
     tab = window.throttle_tab
     import copy
     tab.started_run(copy.deepcopy(window.design), "folder")
+    tab.add_progress("map", 0.0, 2)
+    assert tab.progress.format() == "Map: 0 / 2 points"
     tab.add_point("map", 1, 2, point(1.0, 4.4, True))
     assert tab.outdated_map
     tab._tick()
     assert not tab.outdated_map
     assert "Map 1 / 2" in tab.log.toPlainText()
+    assert tab.progress.format() == "Map: 1 / 2 points" and tab.progress.value() == 500
+
+    # the schedules are told from their start, with the share of the points in work: the bar does not stand at the full map
+    tab.add_point("map", 2, 2, point(0.5, 4.4, True))
+    tab.add_progress("schedule", 0.0, 4)
+    assert tab.progress.format() == "Schedules: 0 / 4 points" and tab.progress.value() == 0
+    tab._tick()
+    assert "schedules" in tab.time_label.text()
+    tab.add_progress("schedule", 1.0, 4)
+    assert tab.progress.format() == "Schedules: 0 / 4 points" and tab.progress.value() == 250
+    tab.add_point("schedule", 1, 4, point(1.0, 4.4, True))
+    assert tab.progress.format() == "Schedules: 1 / 4 points" and tab.progress.value() == 250
 
     results = [point(f, of, film) for film in (True, False) for f in (1.0, 0.5) for of in (4.4, 3.2)]
     schedules = {"film": [point(1.0, 4.4, True), point(0.5, 3.2, True, n_failed=1)], "no_film": [point(1.0, 3.2, False)]}
     tab.finished_run("Finished")
+    assert tab.progress.format() == "Finished" and tab.progress.value() == tab.progress.maximum()
+    assert tab.time_label.text().startswith("Finished")
     tab.show_results(results, schedules)
     assert tab.view.count() == 2
     assert tab.table.rowCount() == 2

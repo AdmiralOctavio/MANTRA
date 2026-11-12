@@ -11,6 +11,8 @@ The thermal process sends messages through a queue:
 
 The throttle process sends 'log', 'error' and
     ('point', stage, done, total, ThrottleResult)       after every point of the map ('map') or of the schedules ('schedule')
+    ('stage', stage, done, total)                       when a stage starts, and as its points advance: done counts the points solved
+                                                        and the solved share of the ones in work
     ('done', folder, map results, schedules)            results are in folder
 """
 
@@ -156,8 +158,11 @@ def throttle_job(design_dict, folder, queue, stop, jobs=None):
         def progress(stage, done, total, result):
             queue.put(("point", stage, done, total, result))
 
+        def status(stage, done, total):
+            queue.put(("stage", stage, float(done), total))
+
         try:
-            map_results, schedules = throttle.run(nd, folder, jobs, True, progress, stop.is_set)
+            map_results, schedules = throttle.run(nd, folder, jobs, True, progress, stop.is_set, status)
         except throttle.ThrottleCancelled:
             return
         sys.stdout.flush()
@@ -248,6 +253,7 @@ class ThermalRun(_ProcessRun):
 class ThrottleRun(_ProcessRun):
     """The throttle analysis in a separate process, with signals for the window."""
     point = Signal(str, int, int, object)
+    stage = Signal(str, float, int)
     text = "The throttle analysis"
 
     def start(self, design, folder, jobs=None):
@@ -268,6 +274,8 @@ class ThrottleRun(_ProcessRun):
     def _message(self, message):
         if message[0] == "point":
             self.point.emit(*message[1:])
+        elif message[0] == "stage":
+            self.stage.emit(*message[1:])
 
 
 def results_geometry(design):

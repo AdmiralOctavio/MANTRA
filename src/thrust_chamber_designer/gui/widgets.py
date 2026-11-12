@@ -26,6 +26,7 @@ class PlotCanvas(QWidget):
         self.canvas = None
         self.toolbar = None
         self.with_toolbar = toolbar
+        self.empty_text = None             # line shown while there is nothing to plot (placeholder)
         self.set_figure(Figure(figsize=figsize, layout="constrained"))
 
     @property
@@ -37,6 +38,7 @@ class PlotCanvas(QWidget):
             if widget is not None:
                 self.layout_.removeWidget(widget)
                 widget.deleteLater()
+        self.empty_text = None
         if figure.get_layout_engine() is None and not any(getattr(ax, "name", "") == "3d" for ax in figure.axes):
             # constrained layout keeps the labels inside the canvas when the window is resized
             figure.set_layout_engine("constrained")
@@ -50,6 +52,7 @@ class PlotCanvas(QWidget):
         self.canvas.draw_idle()
 
     def clear(self):
+        self.empty_text = None
         self.figure.clear()
         self.canvas.draw_idle()
         return self.figure
@@ -57,6 +60,20 @@ class PlotCanvas(QWidget):
     def draw(self):
         self._style()
         self.canvas.draw_idle()
+
+    def placeholder(self, text):
+        """Empties the plot and puts a line of text in its middle, in the look of the theme"""
+        from . import themes
+        self.empty_text = text
+        plot_style.placeholder(self.figure, text, themes.plot_theme())
+        self.canvas.draw_idle()
+
+    def restyle(self):
+        """The figure again in the look of the theme, after the theme of the app changed"""
+        if not self.figure.axes and getattr(self, "empty_text", None) is not None:
+            self.placeholder(self.empty_text)
+        else:
+            self.draw()
 
     def _style(self):
         # plots in the look of the theme of the app

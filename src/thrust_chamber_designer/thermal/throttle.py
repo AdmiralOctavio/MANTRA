@@ -198,9 +198,10 @@ def _result(nd, point, setup, sim, film, pc_fraction):
     )
 
 
-def solve_point(nd, pc_fraction, of_ratio, film, folder, coarse=True):
+def solve_point(nd, pc_fraction, of_ratio, film, folder, coarse=True, progress=None):
     """Thermal simulation of one operating point, the files of the run go to folder. A point which can not be solved is returned with
-    its error, so that it does not end the map. coarse uses the mesh of the map."""
+    its error, so that it does not end the map. coarse uses the mesh of the map. progress(done, total, index) is called after every
+    section."""
     os.makedirs(folder, exist_ok=True)
     try:
         with open(os.path.join(folder, "log.txt"), "w") as log, contextlib.redirect_stdout(log):
@@ -213,7 +214,7 @@ def solve_point(nd, pc_fraction, of_ratio, film, folder, coarse=True):
             modelled = setup.film
             if not film:
                 setup.film = False
-            sim = pipeline.run_thermal(setup)
+            sim = pipeline.run_thermal(setup, progress)
             setup.film = modelled
             os.remove(os.path.join(folder, "section_fields.npz"))           # large, and only needed for the 3D plot of a single run
             return _result(nd, point, setup, sim, film, pc_fraction)
@@ -222,20 +223,25 @@ def solve_point(nd, pc_fraction, of_ratio, film, folder, coarse=True):
 
 
 def _worker(design, tasks, finished):
-    # worker process: solves the points of the queue until it gets None
+    # worker process: solves the points of the queue until it gets None. Answers (index, result, part): part is the share of the
+    # sections of the point that are solved, with result None until the point is done
     nd = pipeline.design_nozzle(design)
     for index, case in iter(tasks.get, None):
-        finished.put((index, solve_point(nd, *case)))
+        # the points of the map take seconds; those on the mesh of the design minutes, so they tell how far they are
+        report = None if case[-1] else (lambda done, total, idx, index=index: finished.put((index, None, done / total)))
+        finished.put((index, solve_point(nd, *case, progress=report), 1.0))
 
 
 def _point_name(pc_fraction, of_ratio, film):
     return "pc%.2f_of%.2f_%s" % (pc_fraction, of_ratio, "film" if film else "no_film")
 
 
-def run_points(design, points, folder, coarse, jobs=None, progress=None, stop=None):
+def run_points(design, points, folder, coarse, jobs=None, progress=None, stop=None, status=None):
     """Solves the points (pc fraction, O/F, film) in parallel. progress(done, total, result) is called as each point finishes, in any
-    order. stop() is asked while waiting, if it returns True the workers are stopped and ThrottleCancelled is raised. Own worker
-    processes rather than a process pool, because a pool can not stop a point that is being solved."""
+    order. status(done, total) is called when the points start and as they advance, done being the points solved and the solved share
+    of the ones in work (told for the mesh of the design only, where a point takes minutes). stop() is asked while waiting, if it
+    returns True the workers are stopped and ThrottleCancelled is raised. Own worker processes rather than a process pool, because a
+    pool can not stop a point that is being solved."""
     if not design.thermal.boiling:
         raise ValueError("The throttle analysis judges the points by the critical heat flux, which needs ThermalSettings.boiling")
     # one point per process, threads of the linear algebra libraries would only compete with the other processes
@@ -249,23 +255,31 @@ def run_points(design, points, folder, coarse, jobs=None, progress=None, stop=No
     count = min(jobs or max(1, (os.cpu_count() or 2) - 2), max(len(points), 1))
     workers = [ctx.Process(target=_worker, args=(design, tasks, finished), daemon=True) for _ in range(count)]
     results = [None] * len(points)
+    parts = [0.0] * len(points)
+    if status is not None:
+        status(0.0, len(points))
     try:
         for worker in workers:
             tasks.put(None)
             worker.start()
-        for done in range(1, len(points) + 1):
-            while True:
-                try:
-                    index, result = finished.get(timeout=0.2)
-                    break
-                except queue.Empty:
-                    if stop is not None and stop():
-                        raise ThrottleCancelled()
-                    if not any(worker.is_alive() for worker in workers):
-                        raise RuntimeError("The worker processes ended before all points were solved")
-            results[index] = result
-            if progress is not None:
-                progress(done, len(points), result)
+        done = 0
+        while done < len(points):
+            try:
+                index, result, part = finished.get(timeout=0.2)
+            except queue.Empty:
+                if stop is not None and stop():
+                    raise ThrottleCancelled()
+                if not any(worker.is_alive() for worker in workers):
+                    raise RuntimeError("The worker processes ended before all points were solved")
+                continue
+            parts[index] = part
+            if result is not None:
+                done += 1
+                results[index] = result
+                if progress is not None:
+                    progress(done, len(points), result)
+            if status is not None:
+                status(sum(parts), len(points))
     finally:
         for worker in workers:
             if worker.is_alive():
@@ -286,12 +300,12 @@ def credit_modes(design):
     return (True, False) if design.film.total_fraction > 0 else (True,)
 
 
-def run_map(nd, out, jobs=None, progress=None, stop=None):
+def run_map(nd, out, jobs=None, progress=None, stop=None, status=None):
     """Every chamber pressure with every O/F, with and without credit for the film"""
     d = nd.design
     fractions, ofs = map_axes(d)
     points = [(frac, of, film) for film in credit_modes(d) for frac in fractions for of in ofs]
-    return run_points(d, points, os.path.join(out, "throttle_map"), True, jobs, progress, stop)
+    return run_points(d, points, os.path.join(out, "throttle_map"), True, jobs, progress, stop, status)
 
 
 def passes(result, settings):
@@ -327,7 +341,7 @@ def pick_schedule(results, settings, film, design_of=None):
     return list(zip(fractions, ofs))
 
 
-def run_schedules(nd, map_results, out, jobs=None, progress=None, stop=None):
+def run_schedules(nd, map_results, out, jobs=None, progress=None, stop=None, status=None):
     """The schedules of the map on the mesh of the design: {name: [ThrottleResult]}, a schedule of the design file with and without the film"""
     d = nd.design
     schedules = {}
@@ -340,7 +354,7 @@ def run_schedules(nd, map_results, out, jobs=None, progress=None, stop=None):
         schedules["design_file_film" if film else "design_file_no_film"] = [(frac, of, film) for frac, of in d.throttle.schedule]
 
     points = sorted({point for schedule in schedules.values() for point in schedule})
-    solved = dict(zip(points, run_points(d, points, os.path.join(out, "throttle_schedule"), False, jobs, progress, stop)))
+    solved = dict(zip(points, run_points(d, points, os.path.join(out, "throttle_schedule"), False, jobs, progress, stop, status)))
     return {name: sorted((dataclasses.replace(solved[point], schedule=name) for point in schedule), key=lambda r: -r.pc_fraction)
             for name, schedule in schedules.items()}
 
@@ -406,24 +420,30 @@ def summary(schedules, settings):
                      r.subcooling_min, r.n_failed, r.Y, r.life_startup, state, notes(r)))
 
 
-def draw_map(fig, results, settings, film, schedule=(), axes=None, fontsize=8.5):
-    """Heatmaps of the map in fig, one of chamber pressure against O/F per quantity, dark is the unfavourable end in each. Cells outside
-    the limits are hatched, the schedule is outlined. axes: (fractions, O/F values) to show, by default those of the results. Points
-    which are not solved yet stay empty."""
+def draw_map(fig, results, settings, film, schedule=(), axes=None, fontsize=8.5, theme="light"):
+    """Heatmaps of the map in fig, one of chamber pressure against O/F per quantity, the strong end of the colours is the unfavourable
+    one in each. Cells outside the limits are hatched, the schedule is outlined. axes: (fractions, O/F values) to show, by default those
+    of the results. Points which are not solved yet stay empty. theme: look of plot_style, for the colours of the cells."""
     from matplotlib.patches import Rectangle
 
+    from .. import plot_style
+
+    look = plot_style.palette(theme)
+    colors = look["map_cmap"]
     results = [r for r in results if r.film == film]
     fractions, ofs = axes or (sorted({r.pc_fraction for r in results}, reverse=True), sorted({r.of_ratio for r in results}, reverse=True))
     grid = {(r.pc_fraction, r.of_ratio): r for r in results}
-    panels = (("Peak gas side wall temperature [K]", lambda r: r.T_wall, "%.0f", "Blues"),
-              ("Heat flux at the channel bottom / CHF", lambda r: r.chf_ratio, "%.2f", "Blues"),
-              ("Lowest subcooling of the coolant [K]", lambda r: r.subcooling_min, "%.0f", "Blues_r"),
-              ("Coolant pressure at the channel inlet [bar]", lambda r: r.p_inlet / 1e5, "%.1f", "Blues_r"))
+    # title, value, format, True if a high value is the unfavourable end
+    panels = (("Peak gas side wall temperature [K]", lambda r: r.T_wall, "%.0f", True),
+              ("Heat flux at the channel bottom / CHF", lambda r: r.chf_ratio, "%.2f", True),
+              ("Lowest subcooling of the coolant [K]", lambda r: r.subcooling_min, "%.0f", False),
+              ("Coolant pressure at the channel inlet [bar]", lambda r: r.p_inlet / 1e5, "%.1f", False))
 
     title = "with the film as modelled" if film else "without credit for the film"
     fig.suptitle("Throttle map, %s. Hatched: outside the limits. Outlined: schedule" % title, fontsize=fontsize + 2)
-    for ax, (label, value, fmt, cmap) in zip(fig.subplots(2, 2).flat, panels):
+    for ax, (label, value, fmt, high_is_bad) in zip(fig.subplots(2, 2).flat, panels):
         ax._tcd_plain = True                    # no grid or background of the theme over the cells
+        cmap = colors if high_is_bad else colors.reversed()
         data = np.array([[value(grid[f, o]) if (f, o) in grid and not grid[f, o].error else np.nan for o in ofs] for f in fractions])
         solved = bool(np.isfinite(data).any())
         image = ax.imshow(data, cmap=cmap, aspect="auto")
@@ -439,20 +459,20 @@ def draw_map(fig, results, settings, film, schedule=(), axes=None, fontsize=8.5)
             spine.set_visible(False)
         if not solved:
             continue
-        limits = image.get_clim()
-        middle = 0.5 * (limits[0] + limits[1])
-        dark_high = not cmap.endswith("_r")
         for i, f in enumerate(fractions):
             for j, o in enumerate(ofs):
                 if np.isnan(data[i, j]):
                     continue
-                light_text = (data[i, j] > middle) == dark_high
-                ax.text(j, i, fmt % data[i, j], ha="center", va="center", fontsize=fontsize, color="white" if light_text else "#1a1a1a")
+                # dark numbers and hatching on a light cell, light ones on a dark cell
+                light_cell = plot_style.luminance(cmap(image.norm(data[i, j]))) > 0.5
+                ax.text(j, i, fmt % data[i, j], ha="center", va="center", fontsize=fontsize, color="#1a1a1a" if light_cell else "white")
                 if not passes(grid[f, o], settings):
-                    ax.add_patch(Rectangle((j - 0.5, i - 0.5), 1, 1, fill=False, hatch="////", edgecolor=(0.54, 0.54, 0.54, 0.5), linewidth=0))
+                    ax.add_patch(Rectangle((j - 0.5, i - 0.5), 1, 1, fill=False, hatch="////", linewidth=0,
+                                           edgecolor=(0.1, 0.1, 0.1, 0.45) if light_cell else (1.0, 1.0, 1.0, 0.4)))
         for frac, of in schedule:
             if frac in fractions and of in ofs:
-                ax.add_patch(Rectangle((ofs.index(of) - 0.47, fractions.index(frac) - 0.47), 0.94, 0.94, fill=False, edgecolor="#e8590c", linewidth=2.2))
+                ax.add_patch(Rectangle((ofs.index(of) - 0.47, fractions.index(frac) - 0.47), 0.94, 0.94, fill=False,
+                                       edgecolor=look["map_outline"], linewidth=2.2))
 
 
 def plot_map(results, settings, film, path, schedule=()):
@@ -464,12 +484,14 @@ def plot_map(results, settings, film, path, schedule=()):
     fig.savefig(path, dpi=200)
 
 
-def run(nd, out, jobs=None, verify=True, progress=None, stop=None):
+def run(nd, out, jobs=None, verify=True, progress=None, stop=None, status=None):
     """The whole analysis of a design: the map, its schedules on the mesh of the design, csv files and plots in out. progress(stage, done,
-    total, result) with stage 'map' or 'schedule' is called after every point, stop() ends the run with ThrottleCancelled."""
+    total, result) with stage 'map' or 'schedule' is called after every point, status(stage, done, total) when a stage starts and as
+    its points advance (see run_points). stop() ends the run with ThrottleCancelled."""
     d = nd.design
     report = (lambda stage: lambda *args: progress(stage, *args)) if progress is not None else (lambda stage: None)
-    map_results = run_map(nd, out, jobs, report("map"), stop)
+    tell = (lambda stage: lambda *args: status(stage, *args)) if status is not None else (lambda stage: None)
+    map_results = run_map(nd, out, jobs, report("map"), stop, tell("map"))
     write_csv(map_results, os.path.join(out, "throttle_map.csv"))
     for film in credit_modes(d):
         name = "throttle_map_%s.png" % ("film" if film else "no_film")
@@ -477,7 +499,7 @@ def run(nd, out, jobs=None, verify=True, progress=None, stop=None):
 
     schedules = {}
     if verify:
-        schedules = run_schedules(nd, map_results, out, jobs, report("schedule"), stop)
+        schedules = run_schedules(nd, map_results, out, jobs, report("schedule"), stop, tell("schedule"))
         write_csv([r for results in schedules.values() for r in results], os.path.join(out, "throttle_schedule.csv"))
         summary(schedules, d.throttle)
     else:

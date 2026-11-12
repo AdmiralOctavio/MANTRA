@@ -213,6 +213,24 @@ def test_map_draws_with_points_missing():
         fig.canvas.draw()
 
 
+def test_map_takes_the_colours_of_the_theme():
+    from matplotlib.colors import to_hex
+    from matplotlib.figure import Figure
+
+    from thrust_chamber_designer import plot_style
+
+    results = [result(1.0, 4.4, T_wall=700.0, chf_ratio=1.2, p_inlet=45e5), result(0.5, 4.4, T_wall=500.0, chf_ratio=0.6, p_inlet=22e5)]
+    for theme in plot_style.THEMES:
+        fig = Figure()
+        throttle.draw_map(fig, results, ThrottleSettings(), True, [(1.0, 4.4)], theme=theme)
+        fig.canvas.draw()
+        # the hottest wall is at the strong end of the colours of the theme, and the schedule is outlined in its colour
+        ax = fig.axes[0]
+        cell = ax.images[0].cmap(ax.images[0].norm(700.0))
+        assert to_hex(cell) == plot_style.MAP_COLORS[theme][-1]
+        assert to_hex(ax.patches[-1].get_edgecolor()) == plot_style.palette(theme)["map_outline"]
+
+
 def test_map_includes_the_design_point():
     design = Design()
     design.throttle.pc_fractions = [0.5]

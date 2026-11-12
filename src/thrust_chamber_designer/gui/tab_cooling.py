@@ -1,21 +1,24 @@
 import copy
 
 import numpy as np
-from matplotlib.patches import Wedge
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (QComboBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton,
-                               QScrollArea, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
+                               QScrollArea, QSlider, QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
-from .. import pipeline
+from .. import pipeline, plot_style
 from ..core import propellants as props
 from ..core.design import FilmPort
 from ..thermal.materials import MATERIALS
+from .jacket_view import JacketView
 from .widgets import PlotCanvas
 from .worker import run_in_thread
 
 
 class CoolingTab(QWidget):
-    """Coolant, film cooling, cooling channels and wall material, with a preview of the channels on the contour of the nozzle."""
+    """Coolant, film cooling, cooling channels and wall material, with a preview of the channels on the contour of the nozzle: a
+    piece of the jacket cut at a section of the chamber and the whole chamber (jacket_view), and the sizes of the channels along it."""
+
+    SLIDER = 1000           # steps of the slider that moves the cut along the chamber
 
     def __init__(self, window):
         super().__init__()
@@ -164,9 +167,31 @@ class CoolingTab(QWidget):
         self.preview_note = QLabel("")
         self.preview_note.setWordWrap(True)
         right.addWidget(self.preview_note)
-        self.preview = PlotCanvas(figsize=(7, 6))
-        right.addWidget(self.preview, 1)
+        # the cut moves along the chamber with the slider, the button puts it back at the throat
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Section"))
+        self.station = QSlider(Qt.Orientation.Horizontal)
+        self.station.setRange(0, self.SLIDER)
+        self.station.setToolTip("Where the jacket is cut in the picture")
+        self.station.valueChanged.connect(self._station_changed)
+        row.addWidget(self.station, 1)
+        self.station_label = QLabel("")
+        row.addWidget(self.station_label)
+        self.throat_button = QPushButton("Throat")
+        self.throat_button.setToolTip("Cut the jacket at the throat")
+        self.throat_button.clicked.connect(self.to_throat)
+        row.addWidget(self.throat_button)
+        right.addLayout(row)
+        splitter = QSplitter(Qt.Orientation.Vertical)
+        self.jacket = JacketView()
+        splitter.addWidget(self.jacket)
+        self.preview = PlotCanvas(figsize=(7, 3))
+        splitter.addWidget(self.preview)
+        splitter.setSizes([420, 300])
+        right.addWidget(splitter, 1)
         layout.addLayout(right, 3)
+        self.contour = None                 # x of the contour the preview shows [m], and x of its throat
+        self.marker = None                  # line of the cut on the plot of the sizes
 
         self.timer = QTimer(self, singleShot=True, interval=300)
         self.timer.timeout.connect(self.draw_preview)
@@ -334,13 +359,21 @@ class CoolingTab(QWidget):
         self.timer.start()
 
     def draw_preview(self):
+        from . import themes
         nd = self.window.nozzle
-        fig = self.preview.clear()
+        self.jacket.set_theme(themes.plot_theme())
+        for widget in (self.station, self.throat_button):
+            widget.setEnabled(nd is not None)
         if nd is None:
-            self.preview_note.setText("Solve the nozzle (Chamber & Nozzle tab) to see the channels on the contour.")
-            self.preview.draw()
+            text = "Solve the nozzle (Chamber & Nozzle tab) to see the channels on the contour."
+            self.preview_note.setText(text)
+            self.station_label.setText("")
+            self.contour, self.marker = None, None
+            self.jacket.set_geometry(None, None, None, "Solve the nozzle to see the cooling jacket")
+            self.preview.placeholder("Solve the nozzle to see the channel sizes along the chamber")
             return
-        self.preview_note.setText("Channels at the throat, and channel size along the chamber.")
+        self.preview_note.setText("A piece of the jacket cut at the section, the coolant in the whole jacket, and the channel sizes along the "
+                                  "chamber. Drag the pictures to turn them.")
         ch = self.window.design.channels
         x = nd.solution.wall_x / 1000
         r = nd.solution.wall_y / 1000
@@ -351,26 +384,17 @@ class CoolingTab(QWidget):
         psi_c = 2 * np.pi * psi / n * np.cos(beta)
         width = psi_c * (r + t_i)                       # at the bottom of the channel, perpendicular to it
 
-        # cross section at the throat: three channels and their ribs
-        i = int(np.argmin(r))
-        ax = fig.add_subplot(2, 1, 1)
-        r_c, r_ci, r_co = r[i] * 1e3, (r[i] + t_i[i]) * 1e3, (r[i] + t_i[i] + h_c[i]) * 1e3
-        r_o = r_co + ch.outer_wall * 1e3
-        pitch = 360.0 / n[i] * np.cos(beta[i])
-        span = 3 * pitch
-        ax.add_patch(Wedge((0, 0), r_o, 90 - span / 2, 90 + span / 2, width=r_o - r_c, facecolor="#c98a5b", edgecolor="#5a3a20", lw=0.8))
-        for k in (-1, 0, 1):
-            c = 90 + k * pitch
-            ax.add_patch(Wedge((0, 0), r_co, c - np.degrees(psi_c[i]) / 2, c + np.degrees(psi_c[i]) / 2, width=r_co - r_ci,
-                               facecolor="#7ec8e3", edgecolor="#2a5080", lw=0.8))
-        ax.set_xlim(-r_o * np.sin(np.radians(span / 2)) * 1.1, r_o * np.sin(np.radians(span / 2)) * 1.1)
-        ax.set_ylim(r_c * np.cos(np.radians(span / 2)) * 0.97, r_o * 1.02)
-        ax.set_aspect("equal")
-        ax.set_title("Throat, x = %.1f mm, %d channels%s" % (round(x[i] * 1e3, 1) + 0.0, n[i], ", perpendicular to the channels" if ch.helical else ""),
-                     fontsize=9)
-        ax.set_xlabel("mm")
+        # the cut stays where it is while the channels are edited, and starts at the throat of a new contour
+        contour = (float(x[0]), float(x[-1]), float(x[int(np.argmin(r))]))
+        new_contour = self.contour != contour
+        self.contour = contour
+        self.jacket.set_geometry(x, r, ch)
+        if new_contour:
+            self.to_throat()
+        self._station_changed()
 
-        ax = fig.add_subplot(2, 1, 2)
+        fig = self.preview.clear()
+        ax = fig.add_subplot()
         ax.plot(x * 1e3, width * 1e3, label="Channel width (bottom)")
         ax.plot(x * 1e3, h_c * 1e3, label="Channel height")
         ax.plot(x * 1e3, t_i * 1e3, label="Inner wall")
@@ -380,6 +404,8 @@ class CoolingTab(QWidget):
             ax.axvline(x_s, color="0.5", lw=0.8, ls=":")
             ax.annotate("%d → %d" % (a, b), (x_s, 0), xycoords=("data", "axes fraction"), xytext=(2, 2), textcoords="offset points",
                         ha="left", va="bottom", fontsize=7, color="0.4")
+        look = plot_style.palette(themes.plot_theme())["jacket"]
+        self.marker = ax.axvline(self.jacket.station * 1e3, color=look["accent"], lw=1.4, label="Section of the picture")
         ax2 = ax.twinx()
         ax2.plot(x * 1e3, r * 1e3, color="0.6", lw=0.8)
         ax2.set_ylabel("Contour radius [mm]", color="0.5")
@@ -388,3 +414,22 @@ class CoolingTab(QWidget):
         ax.set_ylim(bottom=0)
         ax.legend(fontsize=7, loc="upper right")
         self.preview.draw()
+
+    def to_throat(self):
+        if self.contour is not None:
+            x0, x1, throat = self.contour
+            self.station.setValue(int(round(self.SLIDER * (throat - x0) / (x1 - x0))))
+
+    def _station_changed(self, *_):
+        # moves the cut of the picture, and its line on the plot of the sizes
+        if self.contour is None:
+            return
+        x0, x1, throat = self.contour
+        x = x0 + (x1 - x0) * self.station.value() / self.SLIDER
+        if abs(x - throat) <= 0.5 * (x1 - x0) / self.SLIDER:
+            x = throat                                  # the step of the slider nearest to the throat is the throat itself
+        self.jacket.set_station(x)
+        self.station_label.setText("x = %.1f mm%s" % (x * 1e3 + 0.0, ", throat" if x == throat else ""))
+        if self.marker is not None:
+            self.marker.set_xdata([x * 1e3, x * 1e3])
+            self.preview.canvas.draw_idle()

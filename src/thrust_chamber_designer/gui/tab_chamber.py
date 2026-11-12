@@ -85,6 +85,7 @@ class ChamberTab(QWidget):
         splitter.addWidget(self.tables)
         splitter.setSizes([500, 300])
         layout.addWidget(splitter, 5)
+        self.draw()
 
     def refresh(self):
         d = self.window.design
@@ -121,6 +122,8 @@ class ChamberTab(QWidget):
     def draw(self):
         nd = self.window.nozzle
         if nd is None:
+            # nothing solved yet: an empty plot in the look of the theme, not the white figure of matplotlib
+            self.plot.placeholder("Solve the nozzle to see its contour and characteristics")
             return
         from . import themes
         self.plot.set_figure(plots.characteristics_plot(nd.solution, self.show_characteristics.isChecked(), theme=themes.plot_theme()))

@@ -101,7 +101,9 @@ def test_creep_rates_rise_with_temperature_and_stress():
             for sig in (1e6, 30e6, 300e6, 1e9):
                 rates = np.array([float(m.norton.rate(sig, t)) for t in T])
                 assert np.all(np.diff(rates) >= 0), (m.name, sig)
-            assert np.all(np.diff(m.norton.rate(np.logspace(5, 9, 30), 800)) > 0), m.name
+            # strictly rising up to the cap of 1e10 1/s, which weak materials (AlSi10Mg at 800 K) reach at high stress
+            rates = m.norton.rate(np.logspace(5, 9, 30), 800)
+            assert np.all((np.diff(rates) > 0) | (rates[1:] >= 1e10)), m.name
 
 
 def test_library_materials_have_complete_cyclic_data():

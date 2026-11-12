@@ -255,8 +255,9 @@ class ThrottleTab(QWidget):
         fig = self.map.clear()
         design = self.run_design or self.window.design
         results = self.schedules.get(self.view.currentData(), [])
+        from . import themes
         throttle.draw_map(fig, self.map_results, design.throttle, self._film(), [(r.pc_fraction, r.of_ratio) for r in results],
-                          throttle.map_axes(design), fontsize=7)
+                          throttle.map_axes(design), fontsize=7, theme=themes.plot_theme())
         self.map.draw()
 
     def show_schedule(self):
@@ -307,20 +308,27 @@ class ThrottleTab(QWidget):
         self.cancel_button.setEnabled(True)
         self.details.setCurrentWidget(self.log)
         self.stage = "map"
+        self.solved = 0                      # points of the stage that are solved
+        self.stage_started = None            # time and share of the stage when its first share was told, for the time left
         self.progress.setMaximum(0)          # busy until the first point is solved
         self.progress.setValue(0)
-        self.progress.setFormat("Map: %v / %m points")
+        self.progress.setFormat("Map: starting")
         self.started = time.time()
         self.clock.start()
         self._tick()
 
     def finished_run(self, text):
+        # the bar says how the run ended: full and 'Finished', or where it stopped with 'Cancelled' or 'Failed'
         if self.progress.maximum() == 0:
             self.progress.setMaximum(1)
+        if text == "Finished":
+            self.progress.setValue(self.progress.maximum())
+        self.progress.setFormat(text)
         self.run_button.setEnabled(self.window.design.thermal.boiling)
         self.cancel_button.setEnabled(False)
         self.clock.stop()
         self.time_label.setText(text + (" after %.0f s" % (time.time() - self.started) if self.started else ""))
+        self.started = None
         if self.outdated_map:
             self.draw()
 
@@ -328,22 +336,43 @@ class ThrottleTab(QWidget):
         if self.outdated_map:
             self.draw()                      # at most once per tick, a redraw of the whole map takes a moment
         if self.started is not None:
-            elapsed = time.time() - self.started
-            done, total = self.progress.value(), self.progress.maximum()
-            text = "Running for %.0f s" % elapsed
-            if self.stage == "map" and done > 0 and total > 1:
-                text += ", map done in about %.0f s" % (elapsed / done * (total - done))
+            now = time.time()
+            text = "Running for %.0f s" % (now - self.started)
+            part = self.progress.value() / self.progress.maximum() if self.progress.maximum() else 0.0
+            if self.stage_started is not None and part > self.stage_started[1] and part < 1:
+                t0, part0 = self.stage_started
+                left = (now - t0) / (part - part0) * (1 - part)
+                text += ", %s done in about %.0f s" % ("map" if self.stage == "map" else "schedules", left)
+            elif self.stage == "schedule" and part == 0:
+                text += ", solving the schedules on the mesh of the design"
             self.time_label.setText(text)
+
+    def add_progress(self, stage, done, total):
+        # start of a stage, and how far its points are. Without this the bar would stand at the full map for the minutes the first
+        # point of the schedules takes, as if the run were stuck
+        if stage != self.stage:
+            self.stage = stage
+            self.solved = 0
+            self.stage_started = None
+        if total <= 0:
+            return
+        name = "Map" if stage == "map" else "Schedules"
+        self.progress.setMaximum(1000)
+        self.progress.setValue(int(round(1000 * min(done / total, 1.0))))
+        self.progress.setFormat("%s: %d / %d points" % (name, self.solved, total))
+        if self.stage_started is None and done > 0:
+            self.stage_started = (time.time(), done / total)
 
     def add_log(self, line):
         self.log.appendPlainText(line)
 
     def add_point(self, stage, done, total, result):
         if stage != self.stage:
-            self.stage = stage
-            self.progress.setFormat("Schedules: %v / %m points")
-        self.progress.setMaximum(total)
-        self.progress.setValue(done)
+            self.add_progress(stage, 0, total)
+        self.solved = done
+        # the bar does not go back: the shares of the points in work may have put it further than the points solved
+        shown = self.progress.value() / 1000 * total if self.progress.maximum() == 1000 else 0
+        self.add_progress(stage, max(done, shown), total)
         self.add_log("%s %d / %d: %.0f %% Pc, O/F %.2f, %s%s" % (stage.capitalize(), done, total, result.pc_fraction * 100, result.of_ratio,
                                                                  "film" if result.film else "no film credit",
                                                                  ", not solved" if result.error else ", wall %.0f K, q/CHF %.2f" % (result.T_wall, result.chf_ratio)))

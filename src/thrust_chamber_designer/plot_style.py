@@ -19,11 +19,23 @@ AERO_HEAT = ["#1d3f8f", "#1f7fc8", "#35b6c6", "#6cc98a", "#d9e36a", "#f5b04a", "
 # temperature colours of the lcars theme: from deep space blue through lavender and lilac to the orange and gold of the consoles
 LCARS_HEAT = ["#1b1b4d", "#3d3d99", "#7a6fcc", "#cc99cc", "#ff9966", "#ff9900", "#ffcc66", "#fff2cc"]
 
+# cells of the throttle map, from the favourable to the unfavourable end of a quantity: one hue per theme, so that the four panels
+# of the map read as shades and not as alarms
+MAP_COLORS = {
+    "light": ["#f7fbff", "#c6dbef", "#6baed6", "#2171b5", "#08306b"],
+    "dark": ["#232842", "#2c4a7c", "#3f7fb5", "#7ec8e3", "#e3f6fd"],
+    "aero": ["#f7fcff", "#cfe9fb", "#8ccbf2", "#3d9be9", "#0f5fa8", "#0b3a6b"],
+    "lcars": ["#14142e", "#33337a", "#7070b8", "#cc99cc", "#ff9966", "#ff9900"],
+}
+
 PALETTES = {
     "dark": {
         "figure": "#1a1e2e", "axes": "#1e2235", "text": "#c8cfe8", "frame": "#4a5070", "grid": "#4a5070", "legend": "#1a1e2e",
         "colors": {"b": "#7ec8e3", "r": "#e05c5c", "g": "#6fcf97", "k": "#c8cfe8", "orange": "#f0a35e"},
         "section_cmap": "magma", "plotly_scale": "Magma",
+        "map_outline": "#f0a35e", "empty": "#4a5070",
+        "jacket": {"background": ("#1e2235", "#141726"), "wall": "#c98a5b", "coolant": "#7ec8e3", "ink": "#c8cfe8", "accent": "#f0a35e",
+                   "glass": 0.16, "gloss": 0.5, "shadow": 0.0},
     },
     "aero": {
         "figure": "#f5faff", "axes": "#ffffff", "text": "#123a5e", "frame": "#8fb7da", "grid": "#bcd8ee", "legend": "#ffffff",
@@ -32,6 +44,10 @@ PALETTES = {
         "colors": {"b": "#1f8ad6", "r": "#e2583e", "g": "#3aaa4f", "k": "#2a4a68", "orange": "#f29d38"},
         "section_cmap": LinearSegmentedColormap.from_list("aero_heat", AERO_HEAT),
         "plotly_scale": [[i / (len(AERO_HEAT) - 1), c] for i, c in enumerate(AERO_HEAT)],
+        "map_outline": "#f2801c", "empty": "#8fb7da",
+        # glossy copper under blue glass, on the sky of the plots
+        "jacket": {"background": ("#ffffff", "#e2f1fb", "#e4f4ec"), "wall": "#e39a62", "coolant": "#1f9ae0", "ink": "#123a5e",
+                   "accent": "#3aaa4f", "glass": 0.2, "gloss": 1.0, "shadow": 0.22},
     },
     "lcars": {
         # black screens with lavender frames and peach lettering; the default colours of matplotlib (C0 to C3) are swapped as well
@@ -44,9 +60,17 @@ PALETTES = {
         "ink": "#ffcc99",
         "section_cmap": LinearSegmentedColormap.from_list("lcars_heat", LCARS_HEAT),
         "plotly_scale": [[i / (len(LCARS_HEAT) - 1), c] for i, c in enumerate(LCARS_HEAT)],
+        "map_outline": "#ffffff", "empty": "#9999cc",
+        # a display of light on the black of the console: peach wall, periwinkle coolant, edges that glow
+        "jacket": {"background": ("#000000", "#000000"), "wall": "#ff9966", "coolant": "#99ccff", "ink": "#ff9966", "accent": "#ff9900",
+                   "glass": 0.12, "gloss": 0.35, "shadow": 0.0, "edges": 0.9},
     },
-    "light": {"section_cmap": "magma", "plotly_scale": "Magma"},
+    "light": {"section_cmap": "magma", "plotly_scale": "Magma", "map_outline": "#e8590c", "empty": "#8a93a3", "text": "#1d2330",
+              "jacket": {"background": ("#ffffff", "#eef1f5"), "wall": "#c98a5b", "coolant": "#3d9fd8", "ink": "#1d2330", "accent": "#e8590c",
+                         "glass": 0.18, "gloss": 0.6, "shadow": 0.16}},
 }
+for _name, _colors in MAP_COLORS.items():
+    PALETTES[_name]["map_cmap"] = LinearSegmentedColormap.from_list(_name + "_map", _colors)
 
 # line colours of the nozzle plot: wall, centre line, family II, family I inside the nozzle, family I through the exit
 NOZZLE_LINES = {
@@ -91,6 +115,9 @@ def style_figure(fig, theme):
     """Gives a finished matplotlib figure the look of the theme. Can be called more than once."""
     p = PALETTES.get(theme)
     if p is None or "figure" not in p:
+        # the light theme is matplotlib as it is. A figure that was cleared keeps its background, so one left dark by another theme
+        # gets its white back
+        fig.patch.set_facecolor("white")
         return fig
     fig.patch.set_facecolor(p["figure"])
     for ax in list(fig.axes):
@@ -143,7 +170,8 @@ def style_figure(fig, theme):
                     if new is not None:
                         handle.set_color(new)
     for text in fig.texts:
-        text.set_color(p["text"])
+        if not getattr(text, "_tcd_keep", False):          # the line of an empty plot keeps its faint colour
+            text.set_color(p["text"])
     family = _font(p["fonts"]) if "fonts" in p else None
     if family is not None:
         from matplotlib.text import Text
@@ -162,6 +190,22 @@ def style_figure(fig, theme):
                 except (TypeError, ValueError):
                     pass
     return fig
+
+
+def placeholder(fig, text, theme):
+    """An empty figure in the look of the theme, with a line of text in its middle: what a plot shows until there is something to plot"""
+    p = palette(theme)
+    fig.clear()
+    line = fig.text(0.5, 0.5, text.upper() if theme == "lcars" else text, ha="center", va="center", fontsize=11,
+                    color=p.get("empty", "#8a93a3"))
+    line._tcd_keep = True
+    return style_figure(fig, theme)
+
+
+def luminance(color):
+    """Perceived brightness of a colour, 0 (black) to 1 (white): tells if text on it should be dark or light"""
+    r, g, b = to_rgba(color)[:3]
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
 
 def plotly_layout(theme):

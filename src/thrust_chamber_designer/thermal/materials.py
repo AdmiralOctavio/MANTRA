@@ -280,21 +280,64 @@ for m in (SS316L, SS14404):
     m.fatigue = SS316L_fatigue
 
 
-# AlSi10Mg 
+# AlSi10Mg, L-PBF, stress relieved. As built AlSi10Mg overages within minutes above about 250 C, so a hot wall ends up in a
+# softened condition close to this one whatever the delivery state
 k = 140					        # thermal conductivity [W/m/K] at 20 C
 Cp = 730					    # specific heat [J/kg/K] at 20 C
-rho = 2680						# density [kg/m^3] at 20 C
-v = 1                       	# poiosson ratio
-E = 1							# youngs modulus [Pa]
-a = 1							# thermal expasion coefficinent [1/K]
-sig_u = 1                  		# ultimate strength [Pa]
+rho = 2680						# density [kg/m^3] at 20 C, EOS gives a minimum of 2670 for L-PBF parts
+v = 0.33                       	# poiosson ratio, ESTIMATE: usual value of aluminium alloys, no AlSi10Mg data found
+E = 72e9						# youngs modulus [Pa] at room temperature, Lehmhus et al. 2022 (see below)
+a = 20e-6						# thermal expasion coefficinent [1/K], mean value from 25 to 100 C, EOS data sheet
+sig_u = 280e6                  	# ultimate strength [Pa] at room temperature, Lehmhus et al. 2022
+sig_y = 166e6                  	# yield strength [Pa] at room temperature, Lehmhus et al. 2022
 eps = 0.8						# thermal emissivity
 roughness = 5e-5				# effective roughness height [m], estimate
 alpha = k / rho / Cp			# thermal diffusivity [m^2/s]
-AlSi10Mg = Material('AlSi10Mg', alpha, k, rho, Cp, v, E, a, eps, sig_u, roughness)
+AlSi10Mg = Material('AlSi10Mg', alpha, k, rho, Cp, v, E, a, eps, sig_u, roughness, sig_y)
 # variable material properties from https://backend.orbit.dtu.dk/ws/portalfiles/portal/222710402/Thermal_properties_JMEP_postprint.pdf
-# assuming heat treated and 99.5% theoretical density
+# assuming heat treated and 99.5% theoretical density. EOS gives 155 to 165 W/m/K after stress relief or T6, 100 to 110 as built
 AlSi10Mg.thermal_conductivity(np.array([140, 144, 149]), np.array([25, 200, 400])+273.15)
+# mean (secant) thermal expansion coefficient from 25 C to the temperature, ASTM E228, EOS Aluminium AlSi10Mg data sheet (EOS M 290, 30 um)
+AlSi10Mg.temperature_dependent('a', np.array([20, 22, 27])*1e-6, np.array([100, 200, 300]) + 273.15)
+# tensile properties of L-PBF AlSi10Mg (EOS M290, 60 um, build platform at 200 C, stress relieved 2 h at 350 C on the platform, as built
+# surface) tested at RT, 125, 250 and 450 C, vertically built samples (polar angle 0), table A2 of D. Lehmhus et al., High-temperature
+# mechanical properties of stress-relieved AlSi10Mg produced via laser powder bed fusion additive manufacturing, Materials 15 (2022) 7386.
+# Horizontally built samples have about 12 % less yield strength at RT and the same from 125 C on. Short time tests (strain rate 1e-3 1/s,
+# 20 min soak): the strength falls steeply between 250 and 450 C, and longer exposure above about 200 C lowers it further
+AlSi10Mg.temperature_dependent('sig_y', np.array([165.9, 155.0, 133.0, 32.5])*1e6, np.array([20, 125, 250, 450]) + 273.15)
+AlSi10Mg.temperature_dependent('sig_u', np.array([280.2, 249.7, 162.8, 34.4])*1e6, np.array([20, 125, 250, 450]) + 273.15)
+# youngs modulus from the same tensile tests (no value at 450 C). ESTIMATE: quasi static moduli read from tensile curves fall faster with
+# temperature than the dynamic modulus, so the thermal stresses at 250 C may be somewhat underestimated
+AlSi10Mg.temperature_dependent('E', np.array([71.9, 70.4, 55.7])*1e9, np.array([20, 125, 250]) + 273.15)
+# creep rupture: constant load creep tests of as deposited L-PBF AlSi10Mg (SLM500, 50 um, built along the load) at 150, 175, 205 and 225 C,
+# 110 to 283 MPa, minimum creep rates read from figure 7 of C. Paoletti et al., Modelling the creep behavior of an AlSi10Mg alloy produced by
+# additive manufacturing, Mater. Sci. Eng. A 799 (2021) 140138 (stress exponents 15 to 21). No rupture times are tabulated. ESTIMATE: rupture
+# times from the Monkman-Grant product rate x t_r = 0.023 of the two complete creep curves of figure 6a (175 C, 170 and 200 MPa, 0.0230 and
+# 0.0227), giving 0.04 to 780 h. The 22 points fall on one Larson-Miller curve with C = 25 (rms 0.016 in log(stress)), the points are of a
+# quadratic fit. ESTIMATE: 0.85 times the stress for stress relieved parts: at 225 C AlSi10Mg stress relieved 2 h at 300 C (Uzan et al.,
+# Addit. Manuf. 24 (2018) 257, figure 10 of Paoletti et al.) creeps at the rate of the as deposited alloy under 0.78 to 0.91 times the stress,
+# assumed the same at the other temperatures. The as deposited alloy softens during the tests above about 150 C
+AlSi10Mg.creep = LarsonMiller(25, [10120, 10700, 11290, 11880, 12470, 13060, 13650], np.array([289.7, 252.7, 217.9, 186.2, 157.6, 132.2, 109.9])*1e6,
+                              factor=0.85, T_range=(423, 498), source='as deposited L-PBF AlSi10Mg, 150 to 225 C, 0.04 to 780 h (Paoletti et al. 2021)')
+# minimum creep rate: one law rate = A sig^17.0 exp(-213 kJ/mol / R T) fitted to all 22 points of figure 7 of Paoletti et al. as above
+# (rms 0.33 decades, the 150 C set alone scatters by a factor of 10), as points at the ends of the stresses of each test temperature. Fits of
+# each temperature give exponents of 21, 16, 17 and 15, but the fall from 205 to 225 C is within the scatter and would turn the exponent
+# negative when extrapolated to higher temperatures. Stresses times 0.85 for stress relieved parts (ESTIMATE, as for the rupture curve)
+AlSi10Mg.norton = NortonCreep({423.15: (0.85 * np.array([200.0, 283.2])*1e6, [3.66e-8, 1.35e-5]),
+                               448.15: (0.85 * np.array([150.3, 240.0])*1e6, [8.35e-9, 2.37e-5]),
+                               478.15: (0.85 * np.array([125.1, 202.5])*1e6, [1.33e-8, 4.76e-5]),
+                               498.15: (0.85 * np.array([110.0, 187.5])*1e6, [1.29e-8, 1.11e-4])},
+                              source='as deposited L-PBF AlSi10Mg, 150 to 225 C, 110 to 283 MPa (Paoletti et al. 2021), x 0.85 stress')
+# fatigue: strain controlled tests (R = -1, room temperature, machined and polished) of L-PBF AlSi10Mg (built vertically, 30 um) stress
+# relieved 2 h at 300 C, strain amplitudes 0.1 to 1.5 %, figure 4b of R. Fernandes et al., Effect of post-processing heat treatment on cyclic
+# plastic behaviour of AlSi10Mg aluminium alloy processed by LPBF, Procedia Struct. Integr. 42 (2022) 992. Coffin-Manson-Basquin fit with a
+# two part plastic line, constants recovered from the vector data of the fitted lines: strain amplitude [%] = 0.6107 (2N)^-0.1199 + 3.7157
+# (2N)^-0.2520 below 757 reversals, 111.45 (2N)^-0.7651 above. Within a factor of 1.3 of the test lives, except the longest test (2.2e6
+# reversals, the fit gives 1.8 times its life). No elevated temperature data: all hot wall temperatures are flagged as extrapolated, and
+# aluminium alloys soften cyclically and lose fatigue life above about 150 C
+AlSi10Mg.fatigue = FatigueCurve({293.15: lambda N: 2 * (0.6107 * (2 * N)**-0.1199 + np.where(2 * N < 757, 3.7157 * (2 * N)**-0.2520, 111.45 * (2 * N)**-0.7651)) / 100},
+                                N_range=(45, 1.12e6), T_range=(293, 293),
+                                source='stress relieved L-PBF AlSi10Mg, RT only, 45 to 1.1e6 cycles (Fernandes et al. 2022)')
 
 
 
